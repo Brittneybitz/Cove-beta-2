@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig((base: '/Cove-beta-2/',) => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

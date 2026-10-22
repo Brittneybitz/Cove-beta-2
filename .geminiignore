@@ -1,0 +1,2 @@
+# Ignore sensitive keys or deployment YAML configs from Google AI
+.github/workflows/deploy.yml

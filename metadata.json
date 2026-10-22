@@ -1,0 +1,6 @@
+{
+  "name": "Whale Cove - Ocean Quest & Battle Sandbox",
+  "description": "An interactive 3D ocean sandbox featuring Oreo the Orca, swimming schools of fish, foraging, wild creature encounters, crafting, and turn-based battle capture mechanics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

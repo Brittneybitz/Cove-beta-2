@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Whale Cove - Ocean Quest & Battle Sandbox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Whale Cove - Open Ocean Sandbox & RPG Simulation</title>
     <style>
         :root {
             --primary: #38bdf8;
@@ -12,7 +12,7 @@
             --panel-bg: rgba(10, 25, 47, 0.94);
             --border-glow: rgba(56, 189, 248, 0.35);
         }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html {
             margin: 0; padding: 0;
             width: 100%; height: 100%;
@@ -49,18 +49,32 @@
             z-index: 15; display: flex; align-items: center; gap: 8px;
             background: var(--panel-bg); border: 1px solid var(--border-glow);
             padding: 6px 12px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px); max-width: 96vw; overflow-x: auto;
         }
         .nav-btn {
             background: rgba(15, 23, 42, 0.7); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.1);
             padding: 6px 12px; border-radius: 10px; font-weight: 700; font-size: 0.76rem;
-            cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s;
+            cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; white-space: nowrap;
         }
         .nav-btn:hover { background: rgba(30, 41, 59, 0.9); color: white; border-color: var(--primary); }
         .nav-btn.rave-active {
             background: linear-gradient(135deg, #ec4899, #8b5cf6, #06b6d4);
             color: white; animation: subtleBounce 1s infinite;
         }
+        .nav-btn.mic-active {
+            background: linear-gradient(135deg, #059669, #0d9488, #0284c7);
+            color: white; border-color: #34d399; box-shadow: 0 0 14px rgba(16, 185, 129, 0.5);
+        }
+
+        /* Whistle Listening Banner */
+        #listening-banner {
+            position: absolute; top: 68px; left: 50%; transform: translateX(-50%);
+            background: rgba(6, 78, 59, 0.92); border: 1px solid #34d399;
+            color: #a7f3d0; padding: 6px 16px; border-radius: 999px;
+            font-size: 0.75rem; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            backdrop-filter: blur(6px); pointer-events: none; display: none; align-items: center; gap: 8px; z-index: 20;
+        }
+        .mic-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; animation: subtleBounce 0.8s infinite; }
 
         /* UI HUD Layout */
         #ui-wrapper { position: absolute; top: 18px; left: 18px; z-index: 10; display: flex; flex-direction: column; gap: 8px; width: 280px; }
@@ -119,6 +133,16 @@
         }
         .craft-btn:hover { background: #059669; }
         .craft-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
+        /* Universal Restore UI Button */
+        #restore-ui-btn {
+            display: none; position: absolute; top: 18px; right: 18px; z-index: 45;
+            background: var(--panel-bg); border: 2px solid var(--primary);
+            color: var(--primary); padding: 8px 18px; border-radius: 14px;
+            font-size: 0.82rem; font-weight: bold; cursor: pointer;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(8px);
+        }
+        #restore-ui-btn:hover { background: rgba(15, 35, 65, 0.98); }
 
         /* Modals Generic */
         .modal-overlay {
@@ -181,6 +205,23 @@
             content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
             border-width: 8px 8px 0; border-style: solid; border-color: var(--primary) transparent; display: block;
         }
+
+        /* Mobile Touch D-pad / Joystick Controls */
+        #touch-controls {
+            display: none; position: absolute; bottom: 24px; left: 24px; z-index: 25;
+            pointer-events: auto; display: flex; gap: 12px; align-items: flex-end;
+        }
+        .dpad-grid {
+            display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px);
+            gap: 4px; background: rgba(15,23,42,0.85); padding: 8px; border-radius: 18px;
+            border: 1px solid #38bdf8; box-shadow: 0 10px 25px rgba(0,0,0,0.7);
+        }
+        .dpad-btn {
+            background: #1e293b; color: white; border: none; border-radius: 10px;
+            font-size: 1.1rem; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; user-select: none;
+        }
+        .dpad-btn:active { background: #0284c7; }
     </style>
     <!-- Three.js and GLTFLoader from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -192,6 +233,15 @@
 
     <div id="toast">✨ Notification</div>
 
+    <!-- Whistle Listening Banner -->
+    <div id="listening-banner">
+        <span class="mic-dot"></span>
+        <span>Whistle into your mic or call <strong>"Hey Oreo!"</strong> to summon your whale to the screen! 💖🐳</span>
+    </div>
+
+    <!-- Restore UI Button (shown when UI is hidden) -->
+    <button id="restore-ui-btn">👁️ Restore UI HUD</button>
+
     <!-- Top Navigation for GDD Systems -->
     <div id="top-nav">
         <button class="nav-btn" id="btn-open-housing">🏘️ Housing & Bills</button>
@@ -199,7 +249,19 @@
         <button class="nav-btn" id="btn-open-therapy">❤️ Couples Therapy</button>
         <button class="nav-btn" id="btn-open-catalog">📖 50 Species Dex</button>
         <button class="nav-btn" id="btn-time-cycle">☀️ Midday</button>
+        <button class="nav-btn" id="btn-music-toggle">🎵 Ocean Music</button>
+        
+        <!-- Whistle Mic Summon Button -->
+        <button class="nav-btn" id="btn-whistle-mic" title="Turn on mic and whistle to summon Oreo!">
+            <span id="mic-btn-label">🎤 Whistle Mic: OFF</span>
+            <span id="mic-meter" style="display:none; width:36px; height:6px; background:#020617; border-radius:999px; overflow:hidden; border:1px solid #10b981; margin-left:4px;">
+                <span id="mic-meter-fill" style="display:block; height:100%; width:0%; background:#10b981; transition:width 0.08s;"></span>
+            </span>
+        </button>
+
         <button class="nav-btn" id="btn-rave-trigger">🍭 Rave Party (1)</button>
+        <button class="nav-btn" id="btn-open-settings">⚙️ Settings</button>
+        <button class="nav-btn" id="btn-hide-ui">👁️‍🗨️ Hide UI</button>
     </div>
 
     <!-- Left HUD -->
@@ -252,6 +314,9 @@
         <div class="res-row">
             <span>🌿 Kelp Snacks</span> <span id="kelp-count" class="res-val" style="color:#34d399;">6</span>
         </div>
+        <div class="res-row">
+            <span>🥩 Whale/Shark Meat</span> <span id="meat-count" class="res-val" style="color:#fb7185;">0</span>
+        </div>
         
         <!-- Gem counters -->
         <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; font-size:0.65rem; font-family:monospace; text-align:center;">
@@ -288,7 +353,7 @@
         </div>
     </div>
 
-    <!-- Battle Modal -->
+    <!-- Battle Modal with Pokemon Staging & EXP -->
     <div id="battle-modal" class="modal-overlay">
         <div class="modal-card">
             <div class="modal-header">
@@ -309,10 +374,18 @@
 
             <div>
                 <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:4px;">
-                    <span style="color:var(--primary); font-weight:700;">Oreo (Guardian Orca)</span>
+                    <span style="color:var(--primary); font-weight:700;">Oreo (Guardian Orca) <span id="oreo-level-badge" style="color:#38bdf8; font-size:0.7rem;">Lv.12</span></span>
                     <span id="player-hp-txt" style="font-family:monospace;">100 / 100</span>
                 </div>
                 <div class="hp-bar-bg"><div id="player-hp-bar" class="hp-bar-fill"></div></div>
+                <!-- EXP bar -->
+                <div style="display:flex; justify-content:space-between; font-size:0.65rem; color:#94a3b8; margin-top:2px;">
+                    <span>EXP</span>
+                    <span id="exp-txt">0 / 100</span>
+                </div>
+                <div style="background:#1e293b; border-radius:999px; height:4px; overflow:hidden;">
+                    <div id="exp-bar" style="background:#38bdf8; height:100%; width:0%; transition:width 0.4s;"></div>
+                </div>
             </div>
 
             <div class="battle-log" id="battle-log">&gt; Battle initiated!</div>
@@ -329,6 +402,103 @@
                 <button class="b-btn" id="btn-catch-silv" style="background:#475569; font-size:0.7rem;">🥈 Silver (50%)</button>
                 <button class="b-btn" id="btn-catch-gold" style="background:#b45309; font-size:0.7rem; font-weight:bold;">🌟 Golden (80%)</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Post-Catch Modal: Inspection, Naming & Butcher -->
+    <div id="post-catch-modal" class="modal-overlay">
+        <div class="modal-card" style="max-width:460px; border-color:#38bdf8;">
+            <div class="modal-header">
+                <div>
+                    <h3 id="post-catch-title" style="margin:0; color:#38bdf8;">🎉 Creature Caught!</h3>
+                    <p style="margin:0; font-size:0.75rem; color:#94a3b8;">Inspect stats, name your catch, or harvest resources</p>
+                </div>
+            </div>
+            <div style="background:rgba(2,6,23,0.85); padding:14px; border-radius:14px; border:1px solid #1e293b; display:flex; flex-direction:column; gap:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h4 id="post-catch-species" style="margin:0; color:white; font-size:0.95rem;">Wild Great White</h4>
+                        <span id="post-catch-tier" style="font-size:0.7rem; color:#38bdf8; text-transform:uppercase; font-weight:bold;">Rare Tier</span>
+                    </div>
+                    <span id="post-catch-level" style="background:#0369a1; padding:3px 8px; border-radius:999px; font-size:0.75rem; font-weight:bold;">Lv. 8</span>
+                </div>
+
+                <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; text-align:center; font-family:monospace; font-size:0.75rem;">
+                    <div style="background:#1e293b; padding:6px; border-radius:8px;">HP: <span id="post-stat-hp" style="color:#4ade80;">75</span></div>
+                    <div style="background:#1e293b; padding:6px; border-radius:8px;">ATK: <span id="post-stat-atk" style="color:#f87171;">22</span></div>
+                    <div style="background:#1e293b; padding:6px; border-radius:8px;">DEF: <span id="post-stat-def" style="color:#60a5fa;">16</span></div>
+                    <div style="background:#1e293b; padding:6px; border-radius:8px;">SPD: <span id="post-stat-spd" style="color:#facc15;">14</span></div>
+                </div>
+
+                <div>
+                    <label style="font-size:0.75rem; color:#cbd5e1; display:block; margin-bottom:4px;">Give a Nickname:</label>
+                    <input type="text" id="post-catch-name-input" style="width:100%; box-sizing:border-box; background:#1e293b; border:1px solid #334155; padding:8px 12px; border-radius:8px; color:white; font-size:0.85rem; outline:none;">
+                </div>
+
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button id="btn-keep-catch" class="b-btn" style="background:#059669; flex:1; font-weight:bold; padding:10px;">🌟 Keep in Pod</button>
+                    <button id="btn-butcher-catch" class="b-btn" style="background:#dc2626; flex:1; font-weight:bold; padding:10px;">🥩 Butcher (+3 Meat, +50 Coins, +2 Gems)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal-card" style="max-width:440px;">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--primary);">⚙️ Controls & Audio Settings</h3>
+                <button class="close-btn" id="close-settings">✕</button>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:12px; font-size:0.8rem;">
+                <div style="background:#1e293b; padding:12px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <strong style="display:block; color:white;">Controls Scheme</strong>
+                        <span style="font-size:0.7rem; color:#94a3b8;">Minecraft Swim (WASD + Space/Shift, touch D-pad) or Orbit</span>
+                    </div>
+                    <select id="ctrl-scheme-select" style="background:#0f172a; color:#38bdf8; border:1px solid #38bdf8; padding:6px 10px; border-radius:8px; font-weight:bold; outline:none;">
+                        <option value="orbit">Orbit Controls</option>
+                        <option value="minecraft">Minecraft Swim</option>
+                    </select>
+                </div>
+
+                <div style="background:#1e293b; padding:12px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <strong style="display:block; color:white;">Ocean Ambient Music</strong>
+                        <span style="font-size:0.7rem; color:#94a3b8;">Synthesized serene underwater soundscape</span>
+                    </div>
+                    <button id="settings-toggle-music" class="b-btn" style="padding:6px 14px;">Toggle</button>
+                </div>
+
+                <div style="background:#1e293b; padding:12px; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <strong style="display:block; color:white;">Whistle Mic Summon</strong>
+                        <span style="font-size:0.7rem; color:#94a3b8;">Whistle into microphone to summon whale to screen</span>
+                    </div>
+                    <button id="settings-toggle-mic" class="b-btn" style="padding:6px 14px;">Toggle</button>
+                </div>
+
+                <button id="save-settings-btn" class="b-btn" style="padding:10px; margin-top:6px; font-weight:bold;">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Virtual Joystick & Swim Buttons (Minecraft mode) -->
+    <div id="touch-controls">
+        <div class="dpad-grid">
+            <div></div>
+            <button class="dpad-btn" id="dpad-up">▲</button>
+            <div></div>
+            <button class="dpad-btn" id="dpad-left">◀</button>
+            <div style="display:flex; align-items:center; justify-content:center; font-size:0.6rem; color:#94a3b8; font-weight:bold;">SWIM</div>
+            <button class="dpad-btn" id="dpad-right">▶</button>
+            <div></div>
+            <button class="dpad-btn" id="dpad-down">▼</button>
+            <div></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+            <button class="b-btn" id="dpad-float-up" style="width:48px; height:46px; background:#0284c7; font-size:0.72rem; font-weight:bold; border-radius:14px; border:1px solid #38bdf8;">FLOAT<br>UP</button>
+            <button class="b-btn" id="dpad-dive-down" style="width:48px; height:46px; background:#4338ca; font-size:0.72rem; font-weight:bold; border-radius:14px; border:1px solid #818cf8;">DIVE<br>DN</button>
         </div>
     </div>
 
@@ -528,6 +698,8 @@
             inventory: {
                 fish: 6,
                 kelp: 6,
+                whaleMeat: 0,
+                sharkMeat: 0,
                 stdFlutes: 1,
                 silvFlutes: 0,
                 goldFlutes: 0,
@@ -550,6 +722,10 @@
                     rarity: 'mythic',
                     personality: 'moderate',
                     career: 'doctor',
+                    level: 12,
+                    exp: 0,
+                    expNeeded: 100,
+                    stats: { hp: 100, atk: 24, def: 18, spd: 14 },
                     wallet: 40,
                     debt: 0,
                     daysDelinquent: 0,
@@ -563,17 +739,48 @@
             timeOfDay: 'midday',
             isRaveParty: false,
             customModels: {},
-            battle: { active: false, enemy: null, playerHp: 100, maxHp: 100 }
+            battle: { active: false, enemy: null, playerHp: 100, maxHp: 100 },
+            controlScheme: 'orbit',
+            uiHidden: false,
+            pendingCatch: null
         };
 
         const loadedCustomScenes = {};
         const gltfLoader = new THREE.GLTFLoader();
+
+        // Sanitize and fix custom GLTF materials so they never render unlit or black
+        function sanitizeAndFixModelMaterials(root) {
+            if (!root) return;
+            root.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material) {
+                        const fixMat = (m) => {
+                            m.side = THREE.DoubleSide;
+                            if (m.map) {
+                                m.map.colorSpace = THREE.SRGBColorSpace;
+                                m.map.needsUpdate = true;
+                            }
+                            if (m.roughness !== undefined && m.roughness > 0.9) m.roughness = 0.65;
+                            if (m.metalness !== undefined && m.metalness > 0.8) m.metalness = 0.2;
+                            m.needsUpdate = true;
+                        };
+                        if (Array.isArray(child.material)) child.material.forEach(fixMat);
+                        else fixMat(child.material);
+                    }
+                }
+            });
+        }
 
         /* --- 3. AUDIO SYNTHESIZER --- */
         class AudioSynth {
             constructor() {
                 this.ctx = null;
                 this.muted = false;
+                this.oceanMusicActive = false;
+                this.ambientNodes = [];
+                this.ambientMasterGain = null;
             }
             init() {
                 if (!this.ctx) {
@@ -603,12 +810,131 @@
                 this.playTone(380, 'sine', 0.25, 0.2);
                 setTimeout(() => this.playTone(540, 'sine', 0.35, 0.2), 150);
             }
+            // Authentic sweet, dual-glissando happy whale vocalization
+            playHappyWhaleCry() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(420, now);
+                osc1.frequency.exponentialRampToValueAtTime(840, now + 0.35);
+                osc1.frequency.exponentialRampToValueAtTime(620, now + 0.65);
+                osc1.frequency.exponentialRampToValueAtTime(1100, now + 0.95);
+                
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(840, now);
+                osc2.frequency.exponentialRampToValueAtTime(1680, now + 0.35);
+                osc2.frequency.exponentialRampToValueAtTime(1240, now + 0.65);
+                osc2.frequency.exponentialRampToValueAtTime(2200, now + 0.95);
+
+                gain.gain.setValueAtTime(0.01, now);
+                gain.gain.linearRampToValueAtTime(0.22, now + 0.08);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc1.start(now);
+                osc2.start(now);
+                osc1.stop(now + 1.15);
+                osc2.stop(now + 1.15);
+            }
+            playFluteCatchChime() {
+                const notes = [587.33, 659.25, 783.99, 880.00, 1046.50];
+                notes.forEach((f, idx) => {
+                    setTimeout(() => this.playTone(f, 'sine', 0.28, 0.22), idx * 110);
+                });
+            }
+            playPokemonVictoryFanfare() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+                const notes = [
+                    { f: 523.25, d: 0.12 },
+                    { f: 523.25, d: 0.12 },
+                    { f: 523.25, d: 0.12 },
+                    { f: 523.25, d: 0.35 },
+                    { f: 415.30, d: 0.35 },
+                    { f: 466.16, d: 0.35 },
+                    { f: 523.25, d: 0.22 },
+                    { f: 466.16, d: 0.14 },
+                    { f: 523.25, d: 0.8  },
+                ];
+                let time = 0;
+                notes.forEach((n) => {
+                    setTimeout(() => this.playTone(n.f, 'triangle', n.d, 0.24), time * 1000);
+                    time += n.d + 0.03;
+                });
+            }
+            playLevelUpFanfare() {
+                const notes = [440, 554.37, 659.25, 880, 1108.73];
+                notes.forEach((f, idx) => {
+                    setTimeout(() => this.playTone(f, 'triangle', 0.25, 0.25), idx * 90);
+                });
+            }
             playForage() { this.playTone(520, 'triangle', 0.15, 0.18); }
             playAttack() { this.playTone(180, 'sawtooth', 0.2, 0.22); }
-            playFanfare() {
-                [440, 554, 659, 880].forEach((f, i) => {
-                    setTimeout(() => this.playTone(f, 'sine', 0.25, 0.2), i * 110);
+            playFanfare() { this.playPokemonVictoryFanfare(); }
+
+            // Procedural ambient oceanic music synthesizer
+            startOceanAmbientMusic() {
+                if (this.oceanMusicActive) return;
+                this.init();
+                if (!this.ctx) return;
+                this.oceanMusicActive = true;
+                const now = this.ctx.currentTime;
+                
+                const chordFreqs = [130.81, 164.81, 196.00, 261.63];
+                this.ambientNodes = [];
+                
+                const masterGain = this.ctx.createGain();
+                masterGain.gain.setValueAtTime(0.01, now);
+                masterGain.gain.linearRampToValueAtTime(0.08, now + 3);
+                masterGain.connect(this.ctx.destination);
+                
+                chordFreqs.forEach(freq => {
+                    const osc = this.ctx.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now);
+                    
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(350, now);
+                    
+                    osc.connect(filter);
+                    filter.connect(masterGain);
+                    osc.start();
+                    this.ambientNodes.push(osc);
                 });
+                this.ambientMasterGain = masterGain;
+            }
+            stopOceanAmbientMusic() {
+                this.oceanMusicActive = false;
+                if (this.ambientMasterGain && this.ctx) {
+                    this.ambientMasterGain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 1);
+                    setTimeout(() => {
+                        if (this.ambientNodes) {
+                            this.ambientNodes.forEach(n => { try { n.stop(); } catch(_) {} });
+                            this.ambientNodes = [];
+                        }
+                    }, 1100);
+                }
+            }
+            toggleOceanAmbientMusic() {
+                if (this.oceanMusicActive) {
+                    this.stopOceanAmbientMusic();
+                    return false;
+                } else {
+                    this.startOceanAmbientMusic();
+                    return true;
+                }
             }
         }
         const sound = new AudioSynth();
@@ -648,155 +974,176 @@
         sunLight.position.set(12, 35, 15);
         scene.add(sunLight);
         const raveLight = new THREE.PointLight(0xff00ff, 0, 40);
-        raveLight.position.set(0, 6, 0);
+        raveLight.position.set(0, 4, 0);
         scene.add(raveLight);
 
-        // Seabed Floor
-        const floorGeo = new THREE.PlaneGeometry(120, 120, 32, 32);
-        const posAttr = floorGeo.attributes.position;
-        for (let i = 0; i < posAttr.count; i++) {
-            const vx = posAttr.getX(i); const vy = posAttr.getY(i);
-            posAttr.setZ(i, Math.sin(vx * 0.1) * Math.cos(vy * 0.1) * 0.7);
-        }
-        floorGeo.computeVertexNormals();
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x1d3e42, roughness: 0.85 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -6.0;
-        scene.add(floor);
+        // Seabed Fine Sand & Coral Reef
+        const sandGeo = new THREE.PlaneGeometry(120, 120, 32, 32);
+        const sandMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+        const sandMesh = new THREE.Mesh(sandGeo, sandMat);
+        sandMesh.rotation.x = -Math.PI / 2;
+        sandMesh.position.y = -6;
+        scene.add(sandMesh);
 
-        // Nameplate Helper
-        function createNameplate(text, subtext = '') {
-            const c = document.createElement('canvas');
-            c.width = 512; c.height = 140;
-            const ctx = c.getContext('2d');
-            ctx.fillStyle = 'rgba(7, 24, 46, 0.9)';
-            ctx.fillRect(16, 16, 480, 108);
-            ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 4;
-            ctx.strokeRect(16, 16, 480, 108);
-            ctx.font = 'bold 44px sans-serif'; ctx.fillStyle = '#38bdf8';
+        // 3D Floating Heart Emote Sprite
+        function createHeartEmoteSprite() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            const gradient = ctx.createRadialGradient(128, 128, 20, 128, 128, 120);
+            gradient.addColorStop(0, 'rgba(244, 63, 94, 0.95)');
+            gradient.addColorStop(0.5, 'rgba(236, 72, 153, 0.5)');
+            gradient.addColorStop(1, 'rgba(244, 63, 94, 0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+
+            ctx.font = '110px sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(text, 256, subtext ? 54 : 70);
-            if (subtext) {
-                ctx.font = 'bold 24px sans-serif'; ctx.fillStyle = '#94a3b8';
-                ctx.fillText(subtext, 256, 94);
-            }
-            const tex = new THREE.CanvasTexture(c);
-            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            ctx.fillText('💖', 128, 128);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(1.8, 1.8, 1.8);
+            sprite.visible = false;
+            return sprite;
+        }
+        const heartSprite = createHeartEmoteSprite();
+        scene.add(heartSprite);
+
+        // Procedural Creature Rigs
+        function createNameplate(title, sub) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+            ctx.roundRect(0, 0, 256, 64, 12);
+            ctx.fill();
+            ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center'; ctx.fillText(title, 128, 28);
+            ctx.fillStyle = '#94a3b8'; ctx.font = '14px sans-serif';
+            ctx.fillText(sub, 128, 50);
+            const texture = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
             const sp = new THREE.Sprite(mat);
-            sp.scale.set(4.2, 1.15, 1);
+            sp.scale.set(3, 0.75, 1);
             return sp;
         }
 
-        // Procedural Rigs
         function createOrcaRig() {
-            // Check if user uploaded a custom model for Orca
-            if (loadedCustomScenes['orca']) {
-                const clone = loadedCustomScenes['orca'].clone(true);
-                const root = new THREE.Group(); root.add(clone);
-                const sp = createNameplate('Oreo 🌟', 'Custom 3D Model');
-                sp.position.set(0, 2.8, 0); root.add(sp);
-                return { root, type: 'orca', update: (t, spd) => { root.position.y = Math.sin(t * 1.5 * spd) * 0.2; } };
-            }
             const root = new THREE.Group();
-            const blackMat = new THREE.MeshStandardMaterial({ color: 0x0c1222, roughness: 0.15 });
-            const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2 });
-            const body = new THREE.Mesh(new THREE.ConeGeometry(1.3, 4.4, 20), blackMat);
-            body.rotateX(Math.PI / 2); root.add(body);
-            const head = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 12), blackMat);
-            head.scale.set(0.95, 0.8, 1.4); head.position.set(0, 0, 1.8); root.add(head);
-            const belly = new THREE.Mesh(new THREE.SphereGeometry(1.0, 16, 12), whiteMat);
-            belly.scale.set(0.85, 0.35, 1.8); belly.position.set(0, -0.6, 0.8); root.add(belly);
-            const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.8, 8), blackMat);
-            dorsal.rotateX(-0.35); dorsal.position.set(0, 1.2, -0.4); root.add(dorsal);
-            const tail = new THREE.Group(); tail.position.set(0, 0, -2.1);
-            const flukes = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.7), blackMat);
-            flukes.position.set(0, 0, -1.8); tail.add(flukes); root.add(tail);
-            const sp = createNameplate('Oreo 🌟', 'Whale Cove Guardian');
-            sp.position.set(0, 2.8, 0); root.add(sp);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 });
+            const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 });
+
+            const body = new THREE.Mesh(new THREE.ConeGeometry(1.6, 5.2, 16), bodyMat);
+            body.rotation.x = Math.PI / 2; root.add(body);
+
+            const belly = new THREE.Mesh(new THREE.SphereGeometry(1.3, 16, 16), whiteMat);
+            belly.scale.set(0.9, 0.3, 1.8); belly.position.set(0, -0.4, 0.2); root.add(belly);
+
+            const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.8, 4), bodyMat);
+            dorsal.position.set(0, 1.4, -0.2); dorsal.rotation.x = -0.3; root.add(dorsal);
+
+            const tailGroup = new THREE.Group();
+            tailGroup.position.set(0, 0, -2.6);
+            const flukes = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.15, 0.8), bodyMat);
+            tailGroup.add(flukes); root.add(tailGroup);
+
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), whiteMat);
+            eyeL.position.set(0.9, 0.3, 1.2); root.add(eyeL);
+            const eyeR = eyeL.clone(); eyeR.position.x = -0.9; root.add(eyeR);
+
+            const np = createNameplate('Oreo (Mythic)', 'Guardian Orca');
+            np.position.y = 2.4; root.add(np);
+            root.userData = { isOreo: true, isCompanion: true, target: 'orca' };
+
             return {
-                root, tail, type: 'orca',
-                update: (t, spd) => { tail.rotation.x = Math.sin(t * 4.5 * spd) * 0.3; }
+                root,
+                update: (time, spd) => {
+                    tailGroup.rotation.y = Math.sin(time * 5.0 * spd) * 0.45;
+                    root.rotation.z = Math.sin(time * 2.5 * spd) * 0.08;
+                }
             };
         }
 
-        function createSharkRig(kind = 'shark', name = 'Great White') {
-            if (loadedCustomScenes[kind]) {
-                const clone = loadedCustomScenes[kind].clone(true);
-                const root = new THREE.Group(); root.add(clone);
-                const sp = createNameplate(name, 'Custom 3D Shark');
-                sp.position.set(0, 2.5, 0); root.add(sp);
-                return { root, type: kind, update: (t, spd) => { root.position.y = Math.sin(t * 1.5 * spd) * 0.2; } };
-            }
+        function createSharkRig(target = 'shark', name = 'Great White') {
             const root = new THREE.Group();
-            const skin = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.3 });
-            const body = new THREE.Mesh(new THREE.ConeGeometry(1.2, 4.6, 16), skin);
-            body.rotateX(Math.PI / 2); root.add(body);
-            const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.6, 8), skin);
-            dorsal.rotateX(-0.4); dorsal.position.set(0, 1.3, -0.2); root.add(dorsal);
-            const tail = new THREE.Group(); tail.position.set(0, 0, -2.3);
-            const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.0, 0.8), skin);
-            fin.position.set(0, 0, -1.5); tail.add(fin); root.add(tail);
-            const sp = createNameplate(name, 'Apex Hunter');
-            sp.position.set(0, 2.4, 0); root.add(sp);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+            const body = new THREE.Mesh(new THREE.ConeGeometry(1.3, 4.8, 14), mat);
+            body.rotation.x = Math.PI / 2; root.add(body);
+            const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.4, 4), mat);
+            dorsal.position.set(0, 1.1, 0.2); dorsal.rotation.x = -0.2; root.add(dorsal);
+            const tailGroup = new THREE.Group();
+            tailGroup.position.set(0, 0, -2.4);
+            const fin = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.6, 4), mat);
+            fin.rotation.z = Math.PI / 2; tailGroup.add(fin); root.add(tailGroup);
+            const np = createNameplate(name, 'Apex Predator');
+            np.position.y = 2.0; root.add(np);
+            root.userData = { isCompanion: true, target };
             return {
-                root, tail, type: kind,
-                update: (t, spd) => { tail.rotation.y = Math.sin(t * 5.0 * spd) * 0.45; }
+                root,
+                update: (time, spd) => { tailGroup.rotation.y = Math.sin(time * 6.5 * spd) * 0.5; }
             };
         }
 
-        function createDolphinRig(name = 'Wild Dolphin') {
-            if (loadedCustomScenes['dolphin']) {
-                const clone = loadedCustomScenes['dolphin'].clone(true);
-                const root = new THREE.Group(); root.add(clone);
-                const sp = createNameplate(name, 'Custom 3D Dolphin');
-                sp.position.set(0, 2.2, 0); root.add(sp);
-                return { root, type: 'dolphin', update: (t, spd) => { root.position.y = Math.sin(t * 1.5 * spd) * 0.2; } };
-            }
+        function createDolphinRig(name = 'Sand Porpoise') {
             const root = new THREE.Group();
-            const skin = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.2 });
-            const body = new THREE.Mesh(new THREE.SphereGeometry(1.0, 14, 10), skin);
-            body.scale.set(0.7, 0.65, 2.2); root.add(body);
-            const beak = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.0, 10), skin);
-            beak.rotateX(Math.PI / 2); beak.position.set(0, -0.1, 2.5); root.add(beak);
-            const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.1, 8), skin);
-            dorsal.rotateX(-0.5); dorsal.position.set(0, 0.9, -0.1); root.add(dorsal);
-            const tail = new THREE.Group(); tail.position.set(0, 0, -1.8);
-            const flukes = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.5), skin);
-            flukes.position.set(0, 0, -1.5); tail.add(flukes); root.add(tail);
-            const sp = createNameplate(name, 'Playful Ocean Friend');
-            sp.position.set(0, 2.2, 0.2); root.add(sp);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.3 });
+            const body = new THREE.Mesh(new THREE.ConeGeometry(1.1, 4.2, 12), mat);
+            body.rotation.x = Math.PI / 2; root.add(body);
+            const beak = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.0, 8), mat);
+            beak.position.set(0, 0, 2.4); beak.rotation.x = -Math.PI / 2; root.add(beak);
+            const tailGroup = new THREE.Group(); tailGroup.position.set(0, 0, -2.1);
+            const flukes = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.5), mat);
+            tailGroup.add(flukes); root.add(tailGroup);
+            const np = createNameplate(name, 'Playful Dolphin'); np.position.y = 1.8; root.add(np);
+            root.userData = { isCompanion: true, target: 'dolphin' };
             return {
-                root, tail, type: 'dolphin',
-                update: (t, spd) => { tail.rotation.x = Math.sin(t * 6.0 * spd) * 0.35; }
+                root,
+                update: (time, spd) => { tailGroup.rotation.x = Math.sin(time * 7.0 * spd) * 0.45; }
             };
         }
 
-        // Active Companion Rig
         let companionRig = createOrcaRig();
         scene.add(companionRig.root);
-        companionRig.root.userData = { isOreo: true };
 
-        function setCompanion(type) {
+        function setCompanion(target = 'orca') {
+            const pos = companionRig.root.position.clone();
+            const rot = companionRig.root.rotation.clone();
             scene.remove(companionRig.root);
-            if (type === 'shark') companionRig = createSharkRig('shark', 'Oreo (Shark Form)');
-            else if (type === 'dolphin') companionRig = createDolphinRig('Oreo (Dolphin Form)');
-            else companionRig = createOrcaRig();
+
+            if (loadedCustomScenes[target]) {
+                const root = new THREE.Group();
+                const model = loadedCustomScenes[target].clone();
+                model.scale.set(1.2, 1.2, 1.2);
+                root.add(model);
+                const np = createNameplate(`Custom ${target.toUpperCase()}`, 'IndexedDB 3D Model');
+                np.position.y = 2.4; root.add(np);
+                root.userData = { isOreo: (target==='orca'), isCompanion: true, target };
+                companionRig = { root, update: (t, s) => { root.position.y += Math.sin(t*3*s)*0.005; } };
+            } else if (target === 'shark') {
+                companionRig = createSharkRig('shark', 'Great White Shark');
+            } else if (target === 'dolphin') {
+                companionRig = createDolphinRig('Oceanic Dolphin');
+            } else {
+                companionRig = createOrcaRig();
+            }
+            companionRig.root.position.copy(pos);
+            companionRig.root.rotation.copy(rot);
             scene.add(companionRig.root);
-            companionRig.root.userData = { isOreo: true };
-            state.activeCompanion = type;
-            showToast(`Now swimming as ${type}! 🌊`);
+            state.activeCompanion = target;
         }
 
         // Gem Nodes on Seabed
         const gemNodesGroup = new THREE.Group();
         scene.add(gemNodesGroup);
-        const gemTypes = ['topaz', 'quartz', 'ruby', 'sapphire', 'amethyst'];
-        const gemColors = { topaz: 0xf59e0b, quartz: 0x38bdf8, ruby: 0xf43f5e, sapphire: 0x3b82f6, amethyst: 0xa855f7 };
+        const gemColors = { topaz: 0xfbbf24, quartz: 0x22d3ee, ruby: 0xf43f5e, sapphire: 0x3b82f6, amethyst: 0xa855f7 };
         const gemCoords = [
-            { x: -10, z: 6, type: 'topaz' },
+            { x: -10, z: -4, type: 'topaz' },
             { x: 8, z: -8, type: 'quartz' },
-            { x: 12, z: 8, type: 'ruby' },
+            { x: 12, z: 6, type: 'ruby' },
             { x: -6, z: -12, type: 'sapphire' },
             { x: 4, z: 12, type: 'amethyst' }
         ];
@@ -804,10 +1151,7 @@
         gemCoords.forEach(c => {
             const node = new THREE.Group();
             const mat = new THREE.MeshStandardMaterial({
-                color: gemColors[c.type],
-                emissive: gemColors[c.type],
-                emissiveIntensity: 0.6,
-                roughness: 0.2
+                color: gemColors[c.type], emissive: gemColors[c.type], emissiveIntensity: 0.6, roughness: 0.2
             });
             const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), mat);
             mesh.position.y = 0.8; node.add(mesh);
@@ -821,7 +1165,7 @@
         scene.add(housesGroup);
         function rebuildHouses() {
             while (housesGroup.children.length > 0) housesGroup.remove(housesGroup.children[0]);
-            state.houses.forEach((h, idx) => {
+            state.houses.forEach((h) => {
                 const house = new THREE.Group();
                 const mat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.4 });
                 const shell = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.9, 12, 16, Math.PI * 1.6), mat);
@@ -834,7 +1178,7 @@
         }
         rebuildHouses();
 
-        // Wild Creatures System with Rarity Sparkles
+        // Wild Creatures System
         const wildCreatures = [];
         function spawnWildCreature(type = 'shark') {
             if (wildCreatures.length >= 4) {
@@ -846,9 +1190,9 @@
 
             const roll = Math.random();
             let rarity = 'common';
-            if (roll < 0.20) { rarity = 'legendary'; name = `🌟 Golden ${name}`; }
-            else if (roll < 0.45) { rarity = 'rare'; name = `✨ Shimmering ${name}`; }
-            else if (roll < 0.75) { rarity = 'uncommon'; }
+            if (roll < 0.20) { rarity = 'legendary'; name = `🌟 Golden ${name}`; maxHp = 95; pwr = 28; }
+            else if (roll < 0.45) { rarity = 'rare'; name = `✨ Shimmering ${name}`; maxHp = 80; pwr = 22; }
+            else if (roll < 0.75) { rarity = 'uncommon'; maxHp = 70; pwr = 19; }
 
             const angle = Math.random() * Math.PI * 2; const radius = 13 + Math.random() * 6;
             rig.root.position.set(Math.cos(angle)*radius, -2 + Math.random()*5, Math.sin(angle)*radius);
@@ -864,7 +1208,7 @@
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         window.addEventListener('click', (e) => {
-            if (e.target.closest('#ui-wrapper, #food-bar, #top-nav, .modal-overlay, #whale-bubble')) return;
+            if (e.target.closest('#ui-wrapper, #food-bar, #top-nav, .modal-overlay, #whale-bubble, #touch-controls, #restore-ui-btn')) return;
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
@@ -877,12 +1221,13 @@
                     obj = obj.parent;
                 }
                 if (obj.userData.isOreo) {
-                    sound.playWhaleChirp();
+                    sound.playHappyWhaleCry();
+                    triggerHeartEmote();
                     const wb = document.getElementById('whale-bubble');
                     wb.style.left = `${Math.min(window.innerWidth - 120, Math.max(120, e.clientX))}px`;
                     wb.style.top = `${Math.max(90, e.clientY - 20)}px`;
                     wb.style.display = 'block';
-                    const greetings = ['Hungry... 🐟', 'Ready to splash! 🌊', 'The water is so warm! ☀️', 'Whale whistle! 🎵'];
+                    const greetings = ['Hungry... 🐟', 'Ready to splash! 🌊', 'The water is so warm! ☀️', 'Whale whistle! 🎵', 'You are my best friend! 💖'];
                     document.getElementById('bubble-msg').textContent = greetings[Math.floor(Math.random()*greetings.length)];
                 } else if (obj.userData.isGem) {
                     sound.playForage();
@@ -897,7 +1242,171 @@
             }
         });
 
-        /* --- 6. ANIMATION & RENDER LOOP --- */
+        /* --- 6. WHISTLE SUMMON & 3D HEART EMOTE SYSTEM --- */
+        let summonActive = false;
+        let summonStartTime = 0;
+        let heartEmoteActive = false;
+        let heartEmoteStartTime = 0;
+
+        function summonWhaleToScreen(sourceName = 'Whistle') {
+            sound.playHappyWhaleCry();
+            triggerHeartEmote();
+            summonActive = true;
+            summonStartTime = clock.getElapsedTime();
+            
+            showToast(`💖 Oreo heard your ${sourceName}! Swimming directly to you! 🐳`);
+            
+            const wb = document.getElementById('whale-bubble');
+            wb.style.left = `${window.innerWidth / 2}px`;
+            wb.style.top = `${Math.max(100, window.innerHeight / 2 - 80)}px`;
+            wb.style.display = 'block';
+            document.getElementById('bubble-msg').textContent = '💖 *Joyful whale cry!* Rushing to you, friend!';
+        }
+
+        function triggerHeartEmote() {
+            heartEmoteActive = true;
+            heartEmoteStartTime = clock.getElapsedTime();
+            heartSprite.visible = true;
+            heartSprite.material.opacity = 1.0;
+            heartSprite.position.copy(companionRig.root.position);
+            heartSprite.position.y += 2.0;
+        }
+
+        /* --- 7. MICROPHONE WHISTLE & VOICE DETECTOR --- */
+        let micAudioStream = null;
+        let micAnalyser = null;
+        let micDataArray = null;
+        let isMicListening = false;
+        let micAnimFrame = null;
+        let lastWhistleTriggerTime = 0;
+
+        async function toggleWhistleMic() {
+            if (isMicListening) {
+                stopWhistleMic();
+            } else {
+                await startWhistleMic();
+            }
+        }
+
+        async function startWhistleMic() {
+            try {
+                sound.init();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                micAudioStream = stream;
+                const source = sound.ctx.createMediaStreamSource(stream);
+                micAnalyser = sound.ctx.createAnalyser();
+                micAnalyser.fftSize = 1024;
+                source.connect(micAnalyser);
+                micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+                isMicListening = true;
+                
+                document.getElementById('btn-whistle-mic').classList.add('mic-active');
+                document.getElementById('mic-btn-label').textContent = '🎤 Whistle Mic: ON';
+                document.getElementById('mic-meter').style.display = 'block';
+                document.getElementById('listening-banner').style.display = 'flex';
+                showToast('🎤 Whistle Mic ON: Whistle into your mic to summon Oreo! 🐳');
+                sound.playWhaleChirp();
+                
+                analyzeMicLoop();
+            } catch (err) {
+                console.warn('Microphone access denied:', err);
+                showToast('Microphone permission needed for Whistle Summon');
+            }
+        }
+
+        function stopWhistleMic() {
+            isMicListening = false;
+            if (micAudioStream) {
+                micAudioStream.getTracks().forEach(t => t.stop());
+                micAudioStream = null;
+            }
+            if (micAnimFrame) cancelAnimationFrame(micAnimFrame);
+            document.getElementById('btn-whistle-mic').classList.remove('mic-active');
+            document.getElementById('mic-btn-label').textContent = '🎤 Whistle Mic: OFF';
+            document.getElementById('mic-meter').style.display = 'none';
+            document.getElementById('listening-banner').style.display = 'none';
+            showToast('🎤 Whistle Mic OFF');
+        }
+
+        function analyzeMicLoop() {
+            if (!isMicListening || !micAnalyser) return;
+            micAnimFrame = requestAnimationFrame(analyzeMicLoop);
+            micAnalyser.getByteFrequencyData(micDataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < micDataArray.length; i++) sum += micDataArray[i];
+            const avg = sum / micDataArray.length;
+            
+            const meterFill = document.getElementById('mic-meter-fill');
+            if (meterFill) {
+                meterFill.style.width = `${Math.min(100, avg * 2.8)}%`;
+            }
+            
+            const sampleRate = sound.ctx ? sound.ctx.sampleRate : 44100;
+            const binSize = sampleRate / micAnalyser.fftSize;
+            const whistleMinBin = Math.floor(850 / binSize);
+            const whistleMaxBin = Math.floor(2800 / binSize);
+            
+            let whistleMaxVal = 0;
+            for (let i = whistleMinBin; i <= whistleMaxBin; i++) {
+                if (micDataArray[i] > whistleMaxVal) whistleMaxVal = micDataArray[i];
+            }
+            
+            const now = Date.now();
+            const isWhistle = whistleMaxVal > 140 && whistleMaxVal > avg * 2.0;
+            const isLoudCall = avg > 55;
+            
+            if ((isWhistle || isLoudCall) && (now - lastWhistleTriggerTime > 2600)) {
+                lastWhistleTriggerTime = now;
+                summonWhaleToScreen(isWhistle ? 'Whistle' : 'Voice Call');
+            }
+        }
+
+        document.getElementById('btn-whistle-mic').addEventListener('click', toggleWhistleMic);
+
+        /* --- 8. MINECRAFT SWIM & TOUCH CONTROLS KINEMATICS --- */
+        const keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = true;
+            if (k === 'a') keys.a = true;
+            if (k === 's') keys.s = true;
+            if (k === 'd') keys.d = true;
+            if (k === ' ' || e.code === 'Space') keys.space = true;
+            if (k === 'shift' || k === 'c') keys.shift = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = false;
+            if (k === 'a') keys.a = false;
+            if (k === 's') keys.s = false;
+            if (k === 'd') keys.d = false;
+            if (k === ' ' || e.code === 'Space') keys.space = false;
+            if (k === 'shift' || k === 'c') keys.shift = false;
+        });
+
+        // Mobile touch controls setup
+        const dpadUp = document.getElementById('dpad-up');
+        const dpadDown = document.getElementById('dpad-down');
+        const dpadLeft = document.getElementById('dpad-left');
+        const dpadRight = document.getElementById('dpad-right');
+        const dpadFloatUp = document.getElementById('dpad-float-up');
+        const dpadDiveDown = document.getElementById('dpad-dive-down');
+
+        const bindTouch = (elem, onDown, onUp) => {
+            elem.addEventListener('mousedown', onDown);
+            elem.addEventListener('mouseup', onUp);
+            elem.addEventListener('touchstart', (e) => { e.preventDefault(); onDown(); });
+            elem.addEventListener('touchend', (e) => { e.preventDefault(); onUp(); });
+        };
+        bindTouch(dpadUp, () => keys.w = true, () => keys.w = false);
+        bindTouch(dpadDown, () => keys.s = true, () => keys.s = false);
+        bindTouch(dpadLeft, () => keys.a = true, () => keys.a = false);
+        bindTouch(dpadRight, () => keys.d = true, () => keys.d = false);
+        bindTouch(dpadFloatUp, () => keys.space = true, () => keys.space = false);
+        bindTouch(dpadDiveDown, () => keys.shift = true, () => keys.shift = false);
+
+        /* --- 9. ANIMATION & RENDER LOOP --- */
         const clock = new THREE.Clock();
         let orcaAngle = 0;
         function animate() {
@@ -913,14 +1422,81 @@
                 raveLight.intensity = 0;
             }
 
-            orcaAngle += delta * 0.45 * spd * (isRave ? 2.2 : 1.0);
-            const ox = Math.cos(orcaAngle) * (isRave ? 5.5 : 7.5);
-            const oz = Math.sin(orcaAngle) * (isRave ? 5.5 : 7.5);
-            const oy = Math.sin(time * 0.8 * spd) * 1.2;
-            companionRig.root.position.set(ox, oy, oz);
-            companionRig.root.rotation.y = Math.atan2(-Math.sin(orcaAngle), Math.cos(orcaAngle));
+            // Minecraft controls swim update
+            if (state.controlScheme === 'minecraft') {
+                controls.enabled = false;
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                const sideDir = new THREE.Vector3(-camDir.z, 0, camDir.x).normalize();
+                
+                const moveSpeed = delta * 14.0 * spd;
+                if (keys.w) camera.position.addScaledVector(camDir, moveSpeed);
+                if (keys.s) camera.position.addScaledVector(camDir, -moveSpeed);
+                if (keys.a) camera.position.addScaledVector(sideDir, -moveSpeed);
+                if (keys.d) camera.position.addScaledVector(sideDir, moveSpeed);
+                if (keys.space) camera.position.y += moveSpeed * 0.8;
+                if (keys.shift) camera.position.y -= moveSpeed * 0.8;
+                camera.position.y = Math.max(-5.0, Math.min(18.0, camera.position.y));
+            } else {
+                controls.enabled = true;
+                controls.update();
+            }
+
+            // Companion Whale Position: Whistle Summon vs Free Orbit Swim
+            if (summonActive) {
+                const elapsed = time - summonStartTime;
+                if (elapsed < 6.0) {
+                    const dir = new THREE.Vector3();
+                    camera.getWorldDirection(dir);
+                    const targetPos = camera.position.clone().add(dir.multiplyScalar(4.5));
+                    targetPos.y = Math.max(-5.0, Math.min(6.0, targetPos.y));
+                    
+                    companionRig.root.position.lerp(targetPos, delta * 3.2);
+                    
+                    const lookTarget = camera.position.clone();
+                    lookTarget.y = companionRig.root.position.y;
+                    companionRig.root.lookAt(lookTarget);
+                    companionRig.root.rotation.z = Math.sin(time * 6.5) * 0.22;
+                } else {
+                    summonActive = false;
+                }
+            } else {
+                orcaAngle += delta * 0.45 * spd * (isRave ? 2.2 : 1.0);
+                const ox = Math.cos(orcaAngle) * (isRave ? 5.5 : 7.5);
+                const oz = Math.sin(orcaAngle) * (isRave ? 5.5 : 7.5);
+                const oy = Math.sin(time * 0.8 * spd) * 1.2;
+                companionRig.root.position.lerp(new THREE.Vector3(ox, oy, oz), delta * 2.0);
+                companionRig.root.rotation.y = Math.atan2(-Math.sin(orcaAngle), Math.cos(orcaAngle));
+                companionRig.root.rotation.z = 0;
+            }
+
             if (companionRig.update) companionRig.update(time, spd);
 
+            // 3D Heart Emote Animation
+            if (heartEmoteActive) {
+                const heartElapsed = time - heartEmoteStartTime;
+                if (heartElapsed < 4.5) {
+                    heartSprite.visible = true;
+                    heartSprite.position.x = companionRig.root.position.x;
+                    heartSprite.position.z = companionRig.root.position.z;
+                    heartSprite.position.y = companionRig.root.position.y + 2.0 + heartElapsed * 0.45;
+                    
+                    const pop = Math.min(1.0, heartElapsed * 4.0);
+                    const pulse = 1.0 + Math.sin(time * 9.0) * 0.2;
+                    heartSprite.scale.set(1.8 * pop * pulse, 1.8 * pop * pulse, 1.8 * pop * pulse);
+                    
+                    if (heartElapsed > 3.0) {
+                        heartSprite.material.opacity = Math.max(0, 1.0 - (heartElapsed - 3.0) / 1.5);
+                    } else {
+                        heartSprite.material.opacity = 1.0;
+                    }
+                } else {
+                    heartEmoteActive = false;
+                    heartSprite.visible = false;
+                }
+            }
+
+            // Wild creatures swim
             wildCreatures.forEach(w => {
                 w.angle += delta * 0.28 * w.speed * spd;
                 w.rig.root.position.set(Math.cos(w.angle)*w.radius, w.y + Math.sin(time*0.7)*0.8, Math.sin(w.angle)*w.radius);
@@ -928,7 +1504,6 @@
                 if (w.rig.update) w.rig.update(time, spd);
             });
 
-            controls.update();
             renderer.render(scene, camera);
         }
         animate();
@@ -939,7 +1514,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        /* --- 7. BATTLE & CAPTURE ENGINE --- */
+        /* --- 10. BATTLE & CAPTURE ENGINE WITH EXP LEVEL-UP --- */
         function startBattle(enemy) {
             document.getElementById('whale-bubble').style.display = 'none';
             state.battle = { active: true, enemy: { ...enemy }, playerHp: 100, maxHp: 100 };
@@ -959,6 +1534,27 @@
             document.getElementById('player-hp-bar').style.width = `${pp}%`;
             document.getElementById('enemy-hp-txt').textContent = `${b.enemy.hp} / ${b.enemy.maxHp}`;
             document.getElementById('player-hp-txt').textContent = `${b.playerHp} / ${b.maxHp}`;
+            
+            const oreo = state.roster[0];
+            if (oreo) {
+                document.getElementById('oreo-level-badge').textContent = `Lv.${oreo.level}`;
+                document.getElementById('exp-txt').textContent = `${oreo.exp} / ${oreo.expNeeded}`;
+                document.getElementById('exp-bar').style.width = `${(oreo.exp / oreo.expNeeded) * 100}%`;
+            }
+        }
+
+        function grantPlayerEXP(amount = 35) {
+            const oreo = state.roster[0];
+            if (!oreo) return;
+            oreo.exp += amount;
+            if (oreo.exp >= oreo.expNeeded) {
+                oreo.level += 1;
+                oreo.exp -= oreo.expNeeded;
+                oreo.expNeeded = Math.floor(oreo.expNeeded * 1.3);
+                sound.playLevelUpFanfare();
+                showToast(`🌟 LEVEL UP! Oreo reached Level ${oreo.level}! HP & Power increased! 🎉`);
+            }
+            updateBattleUI();
         }
 
         function attemptCatch(fluteType) {
@@ -970,31 +1566,85 @@
                 showToast(`No ${fluteType} flutes remaining!`); return;
             }
             state.inventory[key]--; updateHUD();
+            sound.playFluteCatchChime();
+
             const hpRatio = b.enemy.hp / b.enemy.maxHp;
             const catchRate = Math.min(0.98, base + (1 - hpRatio) * 0.35);
             if (Math.random() < catchRate) {
-                sound.playFanfare();
-                state.roster.push({
-                    id: 'w-' + Date.now(),
-                    name: b.enemy.name,
-                    type: b.enemy.type,
-                    rarity: b.enemy.rarity,
-                    personality: 'moderate',
-                    career: 'unemployed',
-                    wallet: 25,
-                    debt: 0,
-                    daysDelinquent: 0,
-                    isEvicted: false,
-                    sickness: 'healthy'
-                });
-                document.getElementById('battle-log').innerHTML = `&gt; ✨ Success! ${b.enemy.name} was successfully caught!`;
-                updateHUD();
-                setTimeout(() => document.getElementById('battle-modal').style.display = 'none', 1600);
+                sound.playPokemonVictoryFanfare();
+                grantPlayerEXP(45);
+                document.getElementById('battle-modal').style.display = 'none';
+                
+                // Open Post-Catch Inspection & Butcher Modal
+                openPostCatchModal(b.enemy);
             } else {
                 sound.playAttack();
                 document.getElementById('battle-log').innerHTML += `<br>&gt; Oh no! ${b.enemy.name} resisted the melody!`;
             }
         }
+
+        // Post-Catch Inspection & Butcher Modal
+        function openPostCatchModal(enemy) {
+            state.pendingCatch = {
+                ...enemy,
+                level: Math.floor(Math.random() * 8) + 6,
+                stats: {
+                    hp: enemy.maxHp,
+                    atk: enemy.pwr,
+                    def: 12 + Math.floor(Math.random() * 8),
+                    spd: 10 + Math.floor(Math.random() * 8)
+                }
+            };
+            document.getElementById('post-catch-species').textContent = enemy.name;
+            document.getElementById('post-catch-tier').textContent = `${enemy.rarity} tier`;
+            document.getElementById('post-catch-level').textContent = `Lv. ${state.pendingCatch.level}`;
+            document.getElementById('post-stat-hp').textContent = state.pendingCatch.stats.hp;
+            document.getElementById('post-stat-atk').textContent = state.pendingCatch.stats.atk;
+            document.getElementById('post-stat-def').textContent = state.pendingCatch.stats.def;
+            document.getElementById('post-stat-spd').textContent = state.pendingCatch.stats.spd;
+            document.getElementById('post-catch-name-input').value = enemy.name;
+            document.getElementById('post-catch-modal').style.display = 'flex';
+        }
+
+        document.getElementById('btn-keep-catch').addEventListener('click', () => {
+            const c = state.pendingCatch; if (!c) return;
+            const nickname = document.getElementById('post-catch-name-input').value.trim() || c.name;
+            state.roster.push({
+                id: 'w-' + Date.now(),
+                name: nickname,
+                type: c.type,
+                rarity: c.rarity,
+                level: c.level,
+                stats: c.stats,
+                personality: 'moderate',
+                career: 'unemployed',
+                wallet: 25,
+                debt: 0,
+                daysDelinquent: 0,
+                isEvicted: false,
+                sickness: 'healthy'
+            });
+            document.getElementById('post-catch-modal').style.display = 'none';
+            sound.playHappyWhaleCry();
+            updateHUD();
+            showToast(`🌟 Befriended ${nickname}! Welcomed into your pod!`);
+            state.pendingCatch = null;
+        });
+
+        document.getElementById('btn-butcher-catch').addEventListener('click', () => {
+            const c = state.pendingCatch; if (!c) return;
+            const isWhale = c.type === 'orca';
+            if (isWhale) state.inventory.whaleMeat += 3;
+            else state.inventory.sharkMeat += 3;
+            state.inventory.coins += 50;
+            state.inventory.topaz += 1;
+            state.inventory.quartz += 1;
+            document.getElementById('post-catch-modal').style.display = 'none';
+            sound.playAttack();
+            updateHUD();
+            showToast(`🥩 Butchered ${c.name}: +3 ${isWhale ? 'Whale Meat' : 'Shark Meat'}, +50 Coins, +2 Gems!`);
+            state.pendingCatch = null;
+        });
 
         document.getElementById('btn-catch-std').addEventListener('click', () => attemptCatch('std'));
         document.getElementById('btn-catch-silv').addEventListener('click', () => attemptCatch('silv'));
@@ -1007,7 +1657,8 @@
             updateBattleUI();
             document.getElementById('battle-log').innerHTML = `&gt; Oreo used Splash Wave for ${dmg} DMG!`;
             if (state.battle.enemy.hp <= 0) {
-                sound.playFanfare();
+                sound.playPokemonVictoryFanfare();
+                grantPlayerEXP(35);
                 document.getElementById('battle-log').innerHTML += `<br>&gt; Victory! Wild creature ceded peace. +2 Fish Treats, +2 Kelp!`;
                 state.inventory.fish += 2; state.inventory.kelp += 2; updateHUD();
                 setTimeout(() => document.getElementById('battle-modal').style.display = 'none', 1600);
@@ -1021,7 +1672,8 @@
             updateBattleUI();
             document.getElementById('battle-log').innerHTML = `&gt; Tidal Crash struck for ${dmg} DMG!`;
             if (state.battle.enemy.hp <= 0) {
-                sound.playFanfare();
+                sound.playPokemonVictoryFanfare();
+                grantPlayerEXP(35);
                 document.getElementById('battle-log').innerHTML += `<br>&gt; Victory! +2 Fish Treats, +2 Kelp rewarded!`;
                 state.inventory.fish += 2; state.inventory.kelp += 2; updateHUD();
                 setTimeout(() => document.getElementById('battle-modal').style.display = 'none', 1600);
@@ -1041,7 +1693,7 @@
             document.getElementById('battle-modal').style.display = 'none';
         });
 
-        /* --- 8. PERSISTENT MODEL LOADING & INDEXEDDB SYNCHRONIZATION --- */
+        /* --- 11. PERSISTENT MODEL LOADING & INDEXEDDB SYNCHRONIZATION --- */
         async function loadPersistedModelsOnStartup() {
             const models = await getAllModelsFromDB();
             if (models && models.length > 0) {
@@ -1049,6 +1701,7 @@
                     if (m.buffer) {
                         try {
                             gltfLoader.parse(m.buffer, '', (gltf) => {
+                                sanitizeAndFixModelMaterials(gltf.scene);
                                 loadedCustomScenes[m.target] = gltf.scene;
                                 state.customModels[m.target] = { fileName: m.fileName, scale: 1.0 };
                                 updateHUD();
@@ -1084,9 +1737,9 @@
             reader.onload = async (ev) => {
                 const buffer = ev.target.result;
                 gltfLoader.parse(buffer, '', async (gltf) => {
+                    sanitizeAndFixModelMaterials(gltf.scene);
                     loadedCustomScenes[currentModelTab] = gltf.scene;
                     state.customModels[currentModelTab] = { fileName: file.name, scale: 1.0 };
-                    // Save binary buffer permanently to IndexedDB
                     await saveModelToDB(currentModelTab, { fileName: file.name, buffer, scale: 1.0 });
                     updateHUD();
                     if (currentModelTab === state.activeCompanion) setCompanion(currentModelTab);
@@ -1105,10 +1758,11 @@
             showToast(`Reset ${currentModelTab} to default procedural model.`);
         });
 
-        /* --- 9. GDD SYSTEMS: HOUSING, RAVE, TIME-OF-DAY & SPECIES --- */
+        /* --- 12. GDD SYSTEMS: HOUSING, RAVE, TIME-OF-DAY & SPECIES --- */
         function updateHUD() {
             document.getElementById('fish-count').textContent = state.inventory.fish;
             document.getElementById('kelp-count').textContent = state.inventory.kelp;
+            document.getElementById('meat-count').textContent = state.inventory.whaleMeat + state.inventory.sharkMeat;
             document.getElementById('flute-count').textContent = `${state.inventory.stdFlutes}/${state.inventory.silvFlutes}/${state.inventory.goldFlutes}`;
             document.getElementById('roster-count').textContent = state.roster.length;
             document.getElementById('player-coins-txt').textContent = `${state.inventory.coins} 🪙`;
@@ -1127,19 +1781,19 @@
         document.getElementById('craft-std-btn').addEventListener('click', () => {
             if (state.inventory.fish >= 3 && state.inventory.kelp >= 3) {
                 state.inventory.fish -= 3; state.inventory.kelp -= 3; state.inventory.stdFlutes++;
-                sound.playFanfare(); updateHUD(); showToast('🎵 Crafted 1 Standard Flute!');
+                sound.playPokemonVictoryFanfare(); updateHUD(); showToast('🎵 Crafted 1 Standard Flute!');
             } else { showToast('Need 3 Fish + 3 Kelp!'); }
         });
         document.getElementById('craft-silv-btn').addEventListener('click', () => {
             if (state.inventory.fish >= 5 && state.inventory.kelp >= 5 && state.inventory.quartz >= 2) {
                 state.inventory.fish -= 5; state.inventory.kelp -= 5; state.inventory.quartz -= 2; state.inventory.silvFlutes++;
-                sound.playFanfare(); updateHUD(); showToast('🥈 Crafted 1 Silver Flute!');
+                sound.playPokemonVictoryFanfare(); updateHUD(); showToast('🥈 Crafted 1 Silver Flute!');
             } else { showToast('Need 5 Fish + 5 Kelp + 2 Quartz!'); }
         });
         document.getElementById('craft-gold-btn').addEventListener('click', () => {
             if (state.inventory.fish >= 8 && state.inventory.kelp >= 8 && state.inventory.topaz >= 2) {
                 state.inventory.fish -= 8; state.inventory.kelp -= 8; state.inventory.topaz -= 2; state.inventory.goldFlutes++;
-                sound.playFanfare(); updateHUD(); showToast('🌟 Crafted 1 Golden Flute (80% catch)!');
+                sound.playPokemonVictoryFanfare(); updateHUD(); showToast('🌟 Crafted 1 Golden Flute (80% catch)!');
             } else { showToast('Need 8 Fish + 8 Kelp + 2 Topaz!'); }
         });
 
@@ -1165,7 +1819,7 @@
             state.isRaveParty = true;
             raveBtn.classList.add('rave-active');
             raveBtn.textContent = '🍭 RAVE DISCO PARTY!';
-            sound.playFanfare();
+            sound.playPokemonVictoryFanfare();
             showToast('🎉 RAVE CANDY ACTIVATED! SANDSTORM DISCO PARTY! 🌈');
             setTimeout(() => {
                 state.isRaveParty = false;
@@ -1175,24 +1829,72 @@
             }, 60000);
         });
 
+        // Ambient Ocean Music Toggle
+        const musicBtn = document.getElementById('btn-music-toggle');
+        musicBtn.addEventListener('click', () => {
+            const playing = sound.toggleOceanAmbientMusic();
+            musicBtn.textContent = playing ? '🎵 Music: ON' : '🎵 Ocean Music';
+            showToast(playing ? 'Ambient ocean synth soundtrack playing 🎵' : 'Ocean soundtrack muted');
+        });
+
+        // Universal UI Hide / Restore
+        const hideBtn = document.getElementById('btn-hide-ui');
+        const restoreBtn = document.getElementById('restore-ui-btn');
+        function setUIHidden(hidden) {
+            state.uiHidden = hidden;
+            document.getElementById('ui-wrapper').style.display = hidden ? 'none' : 'flex';
+            document.getElementById('food-bar').style.display = hidden ? 'none' : 'flex';
+            document.getElementById('top-nav').style.display = hidden ? 'none' : 'flex';
+            document.getElementById('listening-banner').style.display = (hidden || !isMicListening) ? 'none' : 'flex';
+            if (document.getElementById('touch-controls')) {
+                document.getElementById('touch-controls').style.display = (hidden || state.controlScheme !== 'minecraft') ? 'none' : 'flex';
+            }
+            restoreBtn.style.display = hidden ? 'block' : 'none';
+        }
+        hideBtn.addEventListener('click', () => setUIHidden(true));
+        restoreBtn.addEventListener('click', () => setUIHidden(false));
+
+        // Settings Modal
+        const settingsModal = document.getElementById('settings-modal');
+        document.getElementById('btn-open-settings').addEventListener('click', () => settingsModal.style.display = 'flex');
+        document.getElementById('close-settings').addEventListener('click', () => settingsModal.style.display = 'none');
+        document.getElementById('save-settings-btn').addEventListener('click', () => settingsModal.style.display = 'none');
+
+        const ctrlSelect = document.getElementById('ctrl-scheme-select');
+        ctrlSelect.addEventListener('change', (e) => {
+            state.controlScheme = e.target.value;
+            const touchUi = document.getElementById('touch-controls');
+            if (state.controlScheme === 'minecraft') {
+                touchUi.style.display = 'flex';
+                showToast('Minecraft Controls enabled! Use WASD + Space/Shift or virtual D-pad!');
+            } else {
+                touchUi.style.display = 'none';
+                showToast('Orbit Controls enabled! Click & drag to rotate camera.');
+            }
+        });
+
+        document.getElementById('settings-toggle-music').addEventListener('click', () => {
+            const playing = sound.toggleOceanAmbientMusic();
+            musicBtn.textContent = playing ? '🎵 Music: ON' : '🎵 Ocean Music';
+            showToast(playing ? 'Ambient ocean music ON' : 'Ambient ocean music OFF');
+        });
+        document.getElementById('settings-toggle-mic').addEventListener('click', toggleWhistleMic);
+
         // Housing Modal
         const housingModal = document.getElementById('housing-modal');
         document.getElementById('btn-open-housing').addEventListener('click', () => {
             renderHousingList(); housingModal.style.display = 'flex';
         });
         document.getElementById('close-housing').addEventListener('click', () => housingModal.style.display = 'none');
+
         document.getElementById('btn-build-house').addEventListener('click', () => {
             if (state.inventory.coins < 100) { showToast('Need 100 coins!'); return; }
             state.inventory.coins -= 100;
-            const newHouse = {
-                id: 'h-' + Date.now(),
-                name: `Shell Cottage #${state.houses.length + 1}`,
-                x: (state.houses.length % 4) - 1,
-                z: Math.floor(state.houses.length / 4)
-            };
-            state.houses.push(newHouse);
+            const nh = { id: 'h-' + Date.now(), name: `Shell Villa #${state.houses.length+1}`, x: (state.houses.length % 5) - 2, z: Math.floor(state.houses.length/5), residentId: null };
+            state.houses.push(nh);
             rebuildHouses(); renderHousingList(); updateHUD();
-            showToast('Constructed a Nautilus Shell Cottage! 🐚');
+            sound.playPokemonVictoryFanfare();
+            showToast('Constructed a Nautilus Shell Villa! 🐚');
         });
 
         function renderHousingList() {
@@ -1285,30 +1987,36 @@
             box.scrollTop = box.scrollHeight;
         }
 
-        // Feeding & Bubbles
+        // Feeding & Bubbles (Plays happy cry + floating 3D heart emote)
         document.getElementById('bubble-feed-fish').addEventListener('click', () => {
             if (state.inventory.fish > 0) {
-                state.inventory.fish--; sound.playForage(); updateHUD();
-                document.getElementById('bubble-msg').textContent = 'Delicious fish! Oreo is happy! 💕';
-                showToast('Fed Oreo 1 Fish Treat! 🐟');
+                state.inventory.fish--;
+                sound.playHappyWhaleCry();
+                triggerHeartEmote();
+                updateHUD();
+                document.getElementById('bubble-msg').textContent = 'Delicious fish! Oreo is happy! 💖🐟';
+                showToast('Fed Oreo 1 Fish Treat! 🐟💖');
             }
         });
         document.getElementById('bubble-feed-kelp').addEventListener('click', () => {
             if (state.inventory.kelp > 0) {
-                state.inventory.kelp--; sound.playForage(); updateHUD();
-                document.getElementById('bubble-msg').textContent = 'Crunchy kelp! Energized! 🌿';
-                showToast('Fed Oreo 1 Kelp Snack! 🌿');
+                state.inventory.kelp--;
+                sound.playHappyWhaleCry();
+                triggerHeartEmote();
+                updateHUD();
+                document.getElementById('bubble-msg').textContent = 'Crunchy kelp! Energized! 💖🌿';
+                showToast('Fed Oreo 1 Kelp Snack! 🌿💖');
             }
         });
 
-        // Roster
+        // Roster Modal
         const rosterModal = document.getElementById('roster-modal');
         document.getElementById('roster-link').addEventListener('click', () => {
             const list = document.getElementById('roster-list'); list.innerHTML = '';
             state.roster.forEach(c => {
                 const row = document.createElement('div');
                 row.className = 'res-row';
-                row.innerHTML = `<div><strong>${c.name}</strong> <span style="font-size:0.7rem; color:#38bdf8;">(${c.type.toUpperCase()})</span></div> <button class="b-btn" style="padding:4px 8px; font-size:0.7rem;" onclick="setCompanion('${c.type}'); document.getElementById('roster-modal').style.display='none';">Swim As</button>`;
+                row.innerHTML = `<div><strong>${c.name}</strong> <span style="font-size:0.7rem; color:#38bdf8;">(${c.type.toUpperCase()}) Lv.${c.level||10}</span></div> <button class="b-btn" style="padding:4px 8px; font-size:0.7rem;" onclick="setCompanion('${c.type}'); document.getElementById('roster-modal').style.display='none';">Swim As</button>`;
                 list.appendChild(row);
             });
             rosterModal.style.display = 'flex';

@@ -478,6 +478,64 @@ class SoundManager {
     carrier.stop(now + 0.4);
   }
 
+  public playHappyWhaleCry() {
+    if (this.muted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    // Joyful, multi-tone playful whale greeting song (chirp + trill)
+    const now = this.ctx.currentTime;
+
+    // Carrier 1 (Primary whale vocalization)
+    const carrier = this.ctx.createOscillator();
+    const modulator = this.ctx.createOscillator();
+    const modGain = this.ctx.createGain();
+    const gain = this.ctx.createGain();
+
+    carrier.type = 'sine';
+    modulator.type = 'sine';
+
+    modulator.frequency.setValueAtTime(18, now);
+    modGain.gain.setValueAtTime(95, now);
+    modulator.connect(carrier.frequency);
+
+    // Playful ascending melody curves: low chirp -> high joyous whistle -> warm resolution
+    carrier.frequency.setValueAtTime(480, now);
+    carrier.frequency.exponentialRampToValueAtTime(1180, now + 0.22);
+    carrier.frequency.exponentialRampToValueAtTime(840, now + 0.38);
+    carrier.frequency.exponentialRampToValueAtTime(1420, now + 0.58);
+    carrier.frequency.exponentialRampToValueAtTime(720, now + 0.78);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.24, now + 0.08);
+    gain.gain.setValueAtTime(0.22, now + 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+
+    carrier.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    modulator.start(now);
+    carrier.start(now);
+    modulator.stop(now + 0.85);
+    carrier.stop(now + 0.85);
+
+    // Harmonic bell shimmer over top
+    const shimmer = this.ctx.createOscillator();
+    const sGain = this.ctx.createGain();
+    shimmer.type = 'triangle';
+    shimmer.frequency.setValueAtTime(960, now + 0.15);
+    shimmer.frequency.exponentialRampToValueAtTime(1650, now + 0.45);
+    sGain.gain.setValueAtTime(0.01, now + 0.15);
+    sGain.gain.linearRampToValueAtTime(0.12, now + 0.25);
+    sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+
+    shimmer.connect(sGain);
+    sGain.connect(this.ctx.destination);
+
+    shimmer.start(now + 0.15);
+    shimmer.stop(now + 0.72);
+  }
+
   public playClick() {
     if (this.muted) return;
     this.initCtx();

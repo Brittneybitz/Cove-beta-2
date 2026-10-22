@@ -25,6 +25,8 @@ import {
   Minimize2,
   Utensils,
   Radio,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 
 interface HudOverlayProps {
@@ -65,6 +67,10 @@ interface HudOverlayProps {
   controlScheme: ControlScheme;
   onToggleControlScheme: (scheme: ControlScheme) => void;
   onMobileMoveVectorChange?: (vec: { x: number; y: number; z: number }) => void;
+  // Microphone Whistle Summon
+  isMicListening?: boolean;
+  audioMicLevel?: number;
+  onToggleMic?: () => void;
 }
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
@@ -98,6 +104,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   controlScheme,
   onToggleControlScheme,
   onMobileMoveVectorChange,
+  isMicListening = false,
+  audioMicLevel = 0,
+  onToggleMic,
 }) => {
   const [uiMinimized, setUiMinimized] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -264,6 +273,31 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           <span>{isMusicPlaying ? 'Ocean Music 🎵' : 'Mute Music'}</span>
         </button>
 
+        {/* Whistle Mic Summon Button */}
+        <button
+          onClick={() => {
+            soundManager.playClick();
+            onToggleMic?.();
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border whitespace-nowrap shadow-lg ${
+            isMicListening
+              ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white border-emerald-300 ring-2 ring-emerald-400/50'
+              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+          }`}
+          title="Turn on mic and whistle to summon your whale to the screen!"
+        >
+          {isMicListening ? <Mic size={14} className="text-white animate-pulse" /> : <MicOff size={14} />}
+          <span>{isMicListening ? 'Whistle Mic: ON' : 'Whistle Mic: OFF'}</span>
+          {isMicListening && (
+            <div className="w-10 h-2 bg-slate-950/80 rounded-full overflow-hidden border border-emerald-400/60 ml-0.5">
+              <div
+                className="h-full bg-emerald-400 transition-all duration-75"
+                style={{ width: `${Math.min(100, (audioMicLevel || 0) * 1.6)}%` }}
+              />
+            </div>
+          )}
+        </button>
+
         {/* Rave Candy Strobe Party Button */}
         <button
           onClick={() => {
@@ -306,6 +340,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           <span>Hide UI</span>
         </button>
       </div>
+
+      {/* Listening status badge when Mic is active */}
+      {isMicListening && (
+        <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 bg-emerald-950/90 border border-emerald-400/70 text-emerald-200 text-xs px-4 py-1.5 rounded-full shadow-2xl flex items-center gap-2.5 animate-in fade-in backdrop-blur-md">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+          <span>
+            Whistle into your mic or call <strong>"Hey Oreo!"</strong> to summon your whale to the screen! 💖🐳
+          </span>
+        </div>
+      )}
 
       {/* Top Left: Quick Controls & Roster Hub */}
       <div className="pointer-events-auto absolute top-16 left-4 flex flex-col gap-2 max-w-[280px]">
@@ -692,6 +736,27 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     }`}
                   >
                     {!isMuted ? 'UNMUTED' : 'MUTED'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {isMicListening ? <Mic size={16} className="text-emerald-400" /> : <MicOff size={16} className="text-slate-400" />}
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200">Whistle Mic Summon</span>
+                      <p className="text-[10px] text-slate-400">Whistle into microphone to summon whale</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      onToggleMic?.();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                      isMicListening ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {isMicListening ? 'ACTIVE' : 'OFF'}
                   </button>
                 </div>
               </div>

@@ -40,6 +40,8 @@ interface OceanSceneProps {
   battleState?: BattleState;
   controlScheme?: ControlScheme;
   mobileMoveVector?: { x: number; y: number; z: number };
+  summonTrigger?: number;
+  feedHeartTrigger?: number;
 }
 
 export const OceanScene: React.FC<OceanSceneProps> = ({
@@ -59,6 +61,8 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
   battleState,
   controlScheme = 'minecraft',
   mobileMoveVector = { x: 0, y: 0, z: 0 },
+  summonTrigger = 0,
+  feedHeartTrigger = 0,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const parsedSceneCache = useRef<Record<string, THREE.Group>>({});
@@ -79,6 +83,8 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     battleState,
     controlScheme,
     mobileMoveVector,
+    summonTrigger,
+    feedHeartTrigger,
   });
 
   useEffect(() => {
@@ -98,6 +104,8 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
       battleState,
       controlScheme,
       mobileMoveVector,
+      summonTrigger,
+      feedHeartTrigger,
     };
   }, [
     swimSpeed,
@@ -115,6 +123,8 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     battleState,
     controlScheme,
     mobileMoveVector,
+    summonTrigger,
+    feedHeartTrigger,
   ]);
 
   const sceneActionsRef = useRef<{
@@ -438,6 +448,44 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     const bubbleParticles = new THREE.Points(bubbleGeo, bubbleMat);
     scene.add(bubbleParticles);
 
+    // Heart Emote Sprite Helper
+    const createHeartSprite = (): THREE.Sprite => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d')!;
+
+      const halo = ctx.createRadialGradient(128, 128, 15, 128, 128, 115);
+      halo.addColorStop(0, 'rgba(255, 105, 180, 0.95)');
+      halo.addColorStop(0.5, 'rgba(236, 72, 153, 0.55)');
+      halo.addColorStop(1, 'rgba(236, 72, 153, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(128, 128, 115, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = '130px system-ui, Apple Color Emoji, Segoe UI Emoji, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💖', 128, 134);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const spriteMat = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        opacity: 0,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(2.6, 2.6, 1);
+      sprite.position.set(0, 3.2, 0);
+      sprite.visible = false;
+      return sprite;
+    };
+
+    const heartSprite = createHeartSprite();
+
     // 10. Companion Rig
     const createCompanionRigHelper = (type: string): CreatureRig => {
       const customConfig = propsRef.current.customModels[type as ModelTarget];
@@ -464,12 +512,15 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     let companionRig: CreatureRig = createCompanionRigHelper(propsRef.current.companionType);
     scene.add(companionRig.root);
     companionRig.root.userData = { isOreo: true };
+    companionRig.root.add(heartSprite);
 
     const updateCompanionRig = (type: string) => {
+      companionRig.root.remove(heartSprite);
       scene.remove(companionRig.root);
       companionRig = createCompanionRigHelper(type);
       scene.add(companionRig.root);
       companionRig.root.userData = { isOreo: true };
+      companionRig.root.add(heartSprite);
     };
 
     // 11. Wild Creatures System
@@ -772,6 +823,13 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     let camPitch = 0.15;
     const companionSwimPos = new THREE.Vector3(0, 0, 0);
 
+    // Whistle summon and heart emote animation state
+    let summonUntil = 0;
+    let heartAnimUntil = 0;
+    let heartAnimStart = 0;
+    let lastSummonTrigger = 0;
+    let lastFeedTrigger = 0;
+
     // Multi-touch camera look tracking on right side of screen
     let touchLookId: number | null = null;
     let lastTouchLookX = 0;
@@ -978,7 +1036,55 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
         // ============================================
         // 2. EXPLORATION SWIMMING (MINECRAFT vs ORBIT)
         // ============================================
-        if (scheme === 'minecraft') {
+
+        // Check Whistle Summon & Feeding Heart triggers
+        if (propsRef.current.summonTrigger && propsRef.current.summonTrigger !== lastSummonTrigger) {
+          lastSummonTrigger = propsRef.current.summonTrigger;
+          summonUntil = time + 6.0;
+          heartAnimStart = time;
+          heartAnimUntil = time + 5.0;
+        }
+
+        if (propsRef.current.feedHeartTrigger && propsRef.current.feedHeartTrigger !== lastFeedTrigger) {
+          lastFeedTrigger = propsRef.current.feedHeartTrigger;
+          heartAnimStart = time;
+          heartAnimUntil = time + 4.5;
+        }
+
+        // Animate floating heart emote above the whale
+        if (time < heartAnimUntil) {
+          const hElapsed = time - heartAnimStart;
+          const hDur = Math.max(0.1, heartAnimUntil - heartAnimStart);
+          const hProg = Math.min(1, hElapsed / hDur);
+          const pop = Math.min(1, hElapsed * 4.0);
+          const bounce = pop * (1 + 0.25 * Math.sin(time * 9));
+          heartSprite.position.set(0, 3.2 + hElapsed * 0.45, 0);
+          heartSprite.scale.set(2.8 * bounce, 2.8 * bounce, 1);
+          (heartSprite.material as THREE.SpriteMaterial).opacity = hProg > 0.75 ? (1 - hProg) / 0.25 : 1.0;
+          heartSprite.visible = true;
+        } else {
+          heartSprite.visible = false;
+        }
+
+        // Whistle Summoned State: Whale swims directly to front of screen to greet player!
+        if (time < summonUntil) {
+          const camDir = new THREE.Vector3();
+          camera.getWorldDirection(camDir);
+          const targetFront = camera.position.clone().addScaledVector(camDir, 4.8);
+          targetFront.y = Math.max(-4.2, Math.min(7.5, targetFront.y));
+
+          companionSwimPos.lerp(targetFront, delta * 3.5);
+          companionRig.root.position.copy(companionSwimPos);
+
+          const toCam = camera.position.clone().sub(companionSwimPos);
+          const faceCamAngle = Math.atan2(toCam.x, toCam.z);
+          companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, faceCamAngle, 0.14);
+
+          // Joyous playful rolls & wiggles
+          companionRig.root.rotation.z = Math.sin(time * 6) * 0.25;
+          companionRig.root.rotation.x = Math.sin(time * 3.5) * 0.15;
+          companionRig.updateAnimation(time, 1.5);
+        } else if (scheme === 'minecraft') {
           controls.enabled = false;
 
           // Keyboard input

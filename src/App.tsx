@@ -32,6 +32,7 @@ import {
   ModelExportPreset,
 } from './services/customModelStorage';
 import { soundManager } from './audio/soundManager';
+import { whistleDetector } from './audio/whistleDetector';
 
 const DEFAULT_MODELS_STATE: Record<ModelTarget, CustomModelConfig> = {
   orca: { target: 'orca', sourceType: 'default', scale: 1.0, offsetY: 0 },
@@ -130,8 +131,66 @@ export default function App() {
   const [controlScheme, setControlScheme] = useState<ControlScheme>('minecraft');
   const [mobileMoveVector, setMobileMoveVector] = useState<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
 
+  // Whistle Mic & Summon Reaction State
+  const [isMicListening, setIsMicListening] = useState<boolean>(false);
+  const [audioMicLevel, setAudioMicLevel] = useState<number>(0);
+  const [summonTrigger, setSummonTrigger] = useState<number>(0);
+  const [feedHeartTrigger, setFeedHeartTrigger] = useState<number>(0);
+
   // Post-Catch Inspection & Butcher Screen
   const [postCatchData, setPostCatchData] = useState<PostCatchData | null>(null);
+
+  // Setup Whistle & Voice Detection Listener
+  useEffect(() => {
+    const removeListener = whistleDetector.addListener({
+      onWhistle: ({ type }) => {
+        soundManager.playHappyWhaleCry();
+        setSummonTrigger((prev) => prev + 1);
+        setOreoBubble({
+          visible: true,
+          x: window.innerWidth / 2,
+          y: Math.max(120, window.innerHeight / 2 - 120),
+          text:
+            type === 'whistle'
+              ? '🎶 Oreo heard your whistle! *Happy chirp!* 💕🐳'
+              : '🗣️ Oreo heard your voice! *Joyful chirp!* 💖',
+        });
+        showToast(
+          type === 'whistle'
+            ? '🎶 Whistle heard! Oreo is swimming to greet you! 💕'
+            : '🗣️ Voice heard! Oreo heard your call! 💕'
+        );
+      },
+      onAudioLevel: (lvl) => {
+        setAudioMicLevel(lvl);
+      },
+      onError: () => {
+        setIsMicListening(false);
+        showToast('Microphone access was denied or unavailable.');
+      },
+    });
+
+    return () => {
+      removeListener();
+      whistleDetector.stop();
+    };
+  }, []);
+
+  const handleToggleMic = async () => {
+    if (isMicListening) {
+      whistleDetector.stop();
+      setIsMicListening(false);
+      setAudioMicLevel(0);
+      showToast('🎤 Whistle Mic OFF');
+    } else {
+      const ok = await whistleDetector.start();
+      if (ok) {
+        setIsMicListening(true);
+        soundManager.playWhaleChirp();
+        showToast('🎤 Whistle Mic ON: Whistle into your mic to call Oreo! 🐳');
+      }
+    }
+  };
 
   // Time of Day & Environmental Events
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('midday');
@@ -419,19 +478,29 @@ export default function App() {
   const handleFeedFish = () => {
     if (inventory.fishTreats <= 0) return;
     setInventory((prev) => ({ ...prev, fishTreats: prev.fishTreats - 1 }));
-    setOreoBubble((prev) =>
-      prev ? { ...prev, text: 'Yummy fish! Oreo feels loved! 💖' } : null
-    );
-    showToast('Fed Oreo 1 Fish Treat! +10 Friendship ✨');
+    setFeedHeartTrigger((prev) => prev + 1);
+    soundManager.playHappyWhaleCry();
+    setOreoBubble({
+      visible: true,
+      x: window.innerWidth / 2,
+      y: Math.max(120, window.innerHeight / 2 - 120),
+      text: 'Yummy fish! Oreo loves you! 💖🐟',
+    });
+    showToast('Fed Oreo 1 Fish Treat! +10 Friendship ✨ 💖');
   };
 
   const handleFeedKelp = () => {
     if (inventory.kelpSnacks <= 0) return;
     setInventory((prev) => ({ ...prev, kelpSnacks: prev.kelpSnacks - 1 }));
-    setOreoBubble((prev) =>
-      prev ? { ...prev, text: 'Crunchy kelp! Oreo is energized! 🌿' } : null
-    );
-    showToast('Fed Oreo 1 Kelp Snack! +5 Stamina 🌿');
+    setFeedHeartTrigger((prev) => prev + 1);
+    soundManager.playHappyWhaleCry();
+    setOreoBubble({
+      visible: true,
+      x: window.innerWidth / 2,
+      y: Math.max(120, window.innerHeight / 2 - 120),
+      text: 'Crunchy kelp! Oreo is energized! 💖🌿',
+    });
+    showToast('Fed Oreo 1 Kelp Snack! +5 Stamina 🌿 💖');
   };
 
   // Foraging Fish & Kelp
@@ -938,6 +1007,8 @@ export default function App() {
         battleState={battleState}
         controlScheme={controlScheme}
         mobileMoveVector={mobileMoveVector}
+        summonTrigger={summonTrigger}
+        feedHeartTrigger={feedHeartTrigger}
       />
 
       {/* Primary HUD Overlay with Universal Minimize Tab & Settings */}
@@ -972,6 +1043,9 @@ export default function App() {
         controlScheme={controlScheme}
         onToggleControlScheme={setControlScheme}
         onMobileMoveVectorChange={setMobileMoveVector}
+        isMicListening={isMicListening}
+        audioMicLevel={audioMicLevel}
+        onToggleMic={handleToggleMic}
       />
 
       {/* Modern Pokémon-style Battle & Capture Modal */}

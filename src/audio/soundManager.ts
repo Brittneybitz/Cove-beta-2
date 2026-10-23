@@ -140,6 +140,7 @@ let whaleAI: WhaleAI | null = null;
 let whaleAudioManagerInstance: WhaleAudioManager | null = null;
 let isMutedState = false;
 
+// Explicitly export initWhaleAudio so any file importing it directly won't crash
 export const initWhaleAudio = async (audioUrl: string) => {
     if (whaleAI) return; 
     

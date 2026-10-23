@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { OceanScene } from './three/OceanScene';
 import { BattleModal } from './components/BattleModal';
 import { RosterModal } from './components/RosterModal';
@@ -137,14 +137,23 @@ export default function App() {
   const [summonTrigger, setSummonTrigger] = useState<number>(0);
   const [feedHeartTrigger, setFeedHeartTrigger] = useState<number>(0);
 
+  // Custom Whale AI Engine Instance
+  const whaleAiRef = useRef<any>(null);
+
   // Post-Catch Inspection & Butcher Screen
   const [postCatchData, setPostCatchData] = useState<PostCatchData | null>(null);
 
-  // Setup Whistle & Voice Detection Listener
+  // Setup Whistle & Voice Detection Listener + Trigger Custom Cry AI
   useEffect(() => {
     const removeListener = whistleDetector.addListener({
       onWhistle: ({ type }) => {
         soundManager.playHappyWhaleCry();
+        
+        // Custom Whale Audio Engine Trigger
+        if (whaleAiRef.current) {
+          whaleAiRef.current.triggerEmotion('respond');
+        }
+
         setSummonTrigger((prev) => prev + 1);
         setOreoBubble({
           visible: true,
@@ -176,6 +185,34 @@ export default function App() {
     };
   }, []);
 
+  // Initialize and run the Whale AI Background Loop
+  useEffect(() => {
+    let animId: number;
+
+    const initAI = async () => {
+      if (window.WhaleAI && !whaleAiRef.current) {
+        const ai = new window.WhaleAI();
+        await ai.init('/assets/audio/whale_cry_snippet.mp3');
+        whaleAiRef.current = ai;
+      }
+    };
+
+    initAI();
+
+    const loop = () => {
+      if (whaleAiRef.current) {
+        whaleAiRef.current.update();
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, []);
+
   const handleToggleMic = async () => {
     if (isMicListening) {
       whistleDetector.stop();
@@ -187,6 +224,14 @@ export default function App() {
       if (ok) {
         setIsMicListening(true);
         soundManager.playWhaleChirp();
+        
+        // Ensure AI audio context is initialized on mic user click
+        if (window.WhaleAI && !whaleAiRef.current) {
+          const ai = new window.WhaleAI();
+          await ai.init('/assets/audio/whale_cry_snippet.mp3');
+          whaleAiRef.current = ai;
+        }
+
         showToast('🎤 Whistle Mic ON: Whistle into your mic to call Oreo! 🐳');
       }
     }
@@ -243,7 +288,6 @@ export default function App() {
     const simTimer = setInterval(() => {
       setRoster((prevRoster) => {
         return prevRoster.map((whale) => {
-          // Profession perks
           let addedWallet = 0;
           if (whale.career.profession === 'shopkeeper') {
             addedWallet += 5 * whale.career.level;
@@ -251,14 +295,12 @@ export default function App() {
             addedWallet += Math.floor(whale.economy.wallet * 0.05) + 3;
           }
 
-          // Bills
           const billsDue = whale.economy.rentBill + whale.economy.electricBill + whale.economy.utilityBill;
           let currentWallet = whale.economy.wallet + addedWallet;
           let currentDebt = whale.economy.debt;
           let daysDelinquent = whale.economy.daysDelinquent;
           let isEvicted = whale.economy.isEvicted;
 
-          // Lavish whales spend extravagantly on accessories
           if (whale.personality === 'lavish' && Math.random() < 0.3) {
             currentWallet = Math.max(0, currentWallet - 12);
           }
@@ -277,7 +319,6 @@ export default function App() {
             }
           }
 
-          // Health / Sickness progression
           let sickness = whale.status.sickness;
           if (isEvicted && sickness === 'healthy' && Math.random() < 0.3) {
             sickness = 'sick';
@@ -300,7 +341,6 @@ export default function App() {
         });
       });
 
-      // Doctor whales heal the pod!
       const doctors = roster.filter((r) => r.career.profession === 'doctor');
       if (doctors.length > 0) {
         setRoster((prev) =>
@@ -312,7 +352,6 @@ export default function App() {
         );
       }
 
-      // Shopkeepers generate passive player coins
       const shopkeepers = roster.filter((r) => r.career.profession === 'shopkeeper');
       if (shopkeepers.length > 0) {
         setInventory((prev) => ({
@@ -351,7 +390,7 @@ export default function App() {
     showToast(`Time shifted to ${nextTod.toUpperCase()} 🌊`);
   };
 
-  // Rave Candy Party (Sandstorm 2-minute dance party!)
+  // Rave Candy Party
   const handleTriggerRave = () => {
     if (inventory.raveCandies <= 0) {
       showToast('Need 1 Rave Candy! (Craft with 1 Bloom + 1 Sea Anemone)');
@@ -366,7 +405,7 @@ export default function App() {
     setTimeout(() => {
       setIsRaveParty(false);
       showToast('The rave party settled down. The cove rests. ✨');
-    }, 120000); // 2 minutes
+    }, 120000);
   };
 
   // Gem mining on seabed
@@ -557,8 +596,12 @@ export default function App() {
     }
   };
 
-  // Start Wild Encounter
+  // Start Wild Encounter with Battle Emotion Trigger
   const handleEncounterWild = (creature: WildCreatureData) => {
+    if (whaleAiRef.current) {
+      whaleAiRef.current.triggerEmotion('battle');
+    }
+
     setBattleState({
       active: true,
       enemy: { ...creature },
@@ -590,7 +633,6 @@ export default function App() {
       return;
     }
 
-    // EXP Leveling Helper
     const grantCompanionExp = (amount: number) => {
       let newExp = companionExp + amount;
       let newLvl = companionLevel;
@@ -677,7 +719,6 @@ export default function App() {
             ],
           }));
 
-          // Open the Post-Catch inspect & butcher decision screen
           setPostCatchData({
             creature: enemy,
             defaultName: enemy.name,
@@ -698,7 +739,6 @@ export default function App() {
       return;
     }
 
-    // Attacks & Player Turn
     let damage = 0;
     let playerGuarded = false;
 
@@ -751,7 +791,6 @@ export default function App() {
       return;
     }
 
-    // Reset player attack animation after lunge
     setTimeout(() => {
       setBattleState((prev) => ({
         ...prev,
@@ -759,7 +798,6 @@ export default function App() {
       }));
     }, 450);
 
-    // Enemy Turn after 1 second
     setTimeout(() => {
       const enemy = battleState.enemy;
       if (!enemy) return;
@@ -794,7 +832,6 @@ export default function App() {
     }, 1100);
   };
 
-  // Post-Catch Actions (Keep vs Butcher)
   const handleKeepCaughtCreature = (creature: CaughtCreature) => {
     setRoster((prev) => [...prev, creature]);
     setPostCatchData(null);
@@ -826,7 +863,6 @@ export default function App() {
     showToast(`🥩 Butchered ${creature.name}: +3 ${isWhale ? 'Whale Meat' : 'Shark Meat'}, +50 Coins, +2 Gems!`);
   };
 
-  // Housing Actions
   const handleBuildHouse = () => {
     if (inventory.playerCoins < 100) {
       showToast('Need 100 coins to construct a Nautilus Shell Cottage!');
@@ -886,7 +922,6 @@ export default function App() {
     showToast('Granted Debt Pardon! Whale rehabilitated from The Reef! 📜');
   };
 
-  // Marriage & Therapy Actions
   const handleMarryWhales = (idA: string, idB: string) => {
     setRoster((prev) =>
       prev.map((c) => {
@@ -941,7 +976,6 @@ export default function App() {
     }
   };
 
-  // Higher Education & College Actions
   const handleEnrollCollege = (whaleId: string, profession: ProfessionType) => {
     const tuitionMap: Record<ProfessionType, number> = {
       doctor: 40,
@@ -974,7 +1008,6 @@ export default function App() {
     showToast(`🎓 Whale graduated as a certified ${profession.toUpperCase()}!`);
   };
 
-  // Copy Standalone Code
   const handleCopyStandaloneCode = async () => {
     try {
       const res = await fetch('/standalone-index.html');
@@ -989,7 +1022,6 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans">
-      {/* 3D WebGL Ocean Canvas */}
       <OceanScene
         swimSpeed={swimSpeed}
         cameraMode={cameraMode}
@@ -1011,7 +1043,6 @@ export default function App() {
         feedHeartTrigger={feedHeartTrigger}
       />
 
-      {/* Primary HUD Overlay with Universal Minimize Tab & Settings */}
       <HudOverlay
         inventory={inventory}
         rosterCount={roster.length}
@@ -1048,7 +1079,6 @@ export default function App() {
         onToggleMic={handleToggleMic}
       />
 
-      {/* Modern Pokémon-style Battle & Capture Modal */}
       <BattleModal
         battleState={battleState}
         companionName="Oreo"
@@ -1062,7 +1092,6 @@ export default function App() {
         onClose={() => setBattleState((prev) => ({ ...prev, active: false }))}
       />
 
-      {/* Post-Catch Pokémon-style Inspect & Butcher Screen */}
       <PostCatchModal
         postCatchData={postCatchData}
         onKeep={handleKeepCaughtCreature}
@@ -1070,7 +1099,6 @@ export default function App() {
         onClose={() => setPostCatchData(null)}
       />
 
-      {/* Roster Modal */}
       <RosterModal
         isOpen={isRosterOpen}
         onClose={() => setIsRosterOpen(false)}
@@ -1082,7 +1110,6 @@ export default function App() {
         }}
       />
 
-      {/* Custom 3D Model Manager Modal */}
       <ModelManagerModal
         isOpen={isModelManagerOpen}
         onClose={() => setIsModelManagerOpen(false)}
@@ -1092,7 +1119,6 @@ export default function App() {
         onImportConfig={handleImportConfig}
       />
 
-      {/* Oreo AI Chat Modal */}
       <WhaleChatModal
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
@@ -1101,7 +1127,6 @@ export default function App() {
         onFeedKelp={handleFeedKelp}
       />
 
-      {/* GDD System Modals */}
       <HousingModal
         isOpen={isHousingOpen}
         onClose={() => setIsHousingOpen(false)}
@@ -1125,15 +1150,4 @@ export default function App() {
       <CollegeModal
         isOpen={isCollegeOpen}
         onClose={() => setIsCollegeOpen(false)}
-        roster={roster}
-        onEnrollCollege={handleEnrollCollege}
-        playerCoins={inventory.playerCoins}
-      />
-
-      <SpeciesCatalogModal
-        isOpen={isCatalogOpen}
-        onClose={() => setIsCatalogOpen(false)}
-      />
-    </div>
-  );
-}
+        roster

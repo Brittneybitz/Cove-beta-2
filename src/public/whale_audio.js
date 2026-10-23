@@ -1,166 +1,137 @@
-// whale_audio.js - Whale Audio Engine & AI Controller
-
+// public/whale_audio.js
 class WhaleAudioManager {
-    constructor() {
-        this.audioCtx = null;
-        this.sampleBuffer = null;
-        this.masterGain = null;
-        this.highpassFilter = null;
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.buffer = null;
+    this.highpassFilter = null;
+  }
+
+  async loadAudio(urlOrBuffer) {
+    try {
+      if (typeof urlOrBuffer === 'string') {
+        const response = await fetch(urlOrBuffer);
+        const arrayBuffer = await response.arrayBuffer();
+        this.buffer = await this.ctx.decodeAudioData(arrayBuffer);
+      } else if (urlOrBuffer instanceof ArrayBuffer) {
+        this.buffer = await this.ctx.decodeAudioData(urlOrBuffer);
+      }
+      return true;
+    } catch (err) {
+      console.error("Failed to decode audio:", err);
+      return false;
+    }
+  }
+
+  playCry(emotion = 'idle') {
+    if (!this.buffer || !this.ctx) return 0;
+
+    // Determine Pitch / Speed Profile based on Emotion (matches prototype)
+    let rate = 1.0;
+    if (emotion === 'idle') {
+      rate = 1.5 + Math.random() * 0.5; // Cute high pitch (1.5x to 2.0x)
+    } else if (emotion === 'battle') {
+      rate = 1.2 + Math.random() * 0.3; // Deeper, more aggressive (1.2x to 1.5x)
+    } else if (emotion === 'respond') {
+      rate = 2.0 + Math.random() * 0.8; // Very high, excited response (2.0x to 2.8x)
     }
 
-    async init() {
-        if (!this.audioCtx) {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            this.audioCtx = new AudioContext();
-            
-            this.masterGain = this.audioCtx.createGain();
-            this.masterGain.gain.value = 1.0;
+    // Randomized Slice Selection (0.5s to 2.0s)
+    const minDuration = 0.5;
+    const maxDuration = 2.0;
+    let duration = minDuration + Math.random() * (maxDuration - minDuration);
+    duration = Math.min(duration, this.buffer.duration);
 
-            this.highpassFilter = this.audioCtx.createBiquadFilter();
-            this.highpassFilter.type = 'highpass';
-            this.highpassFilter.frequency.value = 600; // Strips out deep bass rumbles to keep it cute and high
+    const maxStart = Math.max(0, this.buffer.duration - duration);
+    const startTime = Math.random() * maxStart;
 
-            this.highpassFilter.connect(this.masterGain);
-            this.masterGain.connect(this.audioCtx.destination);
-        }
-        if (this.audioCtx.state === 'suspended') {
-            await this.audioCtx.resume();
-        }
-    }
+    // Audio Graph
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.buffer;
+    source.playbackRate.value = rate;
 
-    async loadSample(url) {
-        try {
-            const response = await fetch(url);
-            const arrayBuffer = await response.arrayBuffer();
-            this.sampleBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
-            console.log("Whale cry sample loaded successfully!");
-        } catch (e) {
-            console.error("Failed to load sample audio:", e);
-        }
-    }
+    // Highpass filter (strips out deep rumbles to keep it high and cute)
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 600;
 
-    playRandomSlice(emotion = 'idle') {
-        if (!this.sampleBuffer || !this.audioCtx) return;
+    const gainNode = this.ctx.createGain();
 
-        const source = this.audioCtx.createBufferSource();
-        source.buffer = this.sampleBuffer;
+    source.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.ctx.destination);
 
-        // Configure playback rate (pitch) based on emotion
-        let rate = 1.8 + Math.random() * 0.7; // default cute high pitch (1.5x to 2.5x)
-        if (emotion === 'battle') {
-            rate = 1.2 + Math.random() * 0.4; // slightly deeper for battle
-        } else if (emotion === 'respond') {
-            rate = 2.2 + Math.random() * 0.5; // very high and excited for whistle response
-        }
-        source.playbackRate.value = rate;
+    // Envelope Fade In / Out
+    const now = this.ctx.currentTime;
+    const actualPlaybackDuration = duration / rate;
+    const fadeTime = Math.min(0.1, actualPlaybackDuration / 2);
 
-        // Pick a random slice of the audio file
-        const duration = this.sampleBuffer.duration;
-        const sliceLength = 0.5 + Math.random() * 1.0; // between 0.5 and 1.5 seconds long
-        const maxStart = Math.max(0, duration - sliceLength);
-        const startTime = Math.random() * maxStart;
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(1, now + fadeTime);
+    gainNode.gain.setValueAtTime(1, now + actualPlaybackDuration - fadeTime);
+    gainNode.gain.linearRampToValueAtTime(0, now + actualPlaybackDuration);
 
-        // Create an envelope gain node to prevent popping/clicking at start/end
-        const gainNode = this.audioCtx.createGain();
-        const now = this.audioCtx.currentTime;
-        
-        gainNode.gain.setValueAtTime(0, now);
-        gainNode.gain.linearRampToValueAtTime(1.0, now + 0.05);
-        gainNode.gain.setValueAtTime(1.0, now + sliceLength - 0.05);
-        gainNode.gain.linearRampToValueAtTime(0, now + sliceLength);
-
-        // Connect nodes: Source -> Gain -> Highpass Filter -> Speakers
-        source.connect(gainNode);
-        gainNode.connect(this.highpassFilter);
-
-        source.start(now, startTime, sliceLength);
-    }
-}
-
-class WhistleDetector {
-    constructor() {
-        this.audioCtx = null;
-        this.analyser = null;
-        this.microphone = null;
-        this.isListening = false;
-    }
-
-    async init() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            this.microphone = this.audioCtx.createMediaStreamSource(stream);
-            this.analyser = this.audioCtx.createAnalyser();
-            this.analyser.fftSize = 2048;
-            
-            this.microphone.connect(this.analyser);
-            this.isListening = true;
-            console.log("Microphone whistle detector active.");
-        } catch (err) {
-            console.warn("Microphone access denied or unavailable:", err);
-        }
-    }
-
-    detectWhistle() {
-        if (!this.isListening || !this.analyser) return false;
-
-        const bufferLength = this.analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-        this.analyser.getByteFrequencyData(dataArray);
-
-        // Look for high-frequency spikes typical of a human whistle
-        let highFreqSum = 0;
-        const startBin = Math.floor(bufferLength * 0.6); // Upper frequency range
-        for (let i = startBin; i < bufferLength; i++) {
-            highFreqSum += dataArray[i];
-        }
-        const averageHighFreq = highFreqSum / (bufferLength - startBin);
-
-        // Threshold for detecting a whistle burst
-        return averageHighFreq > 80;
-    }
+    source.start(now, startTime, duration);
+    return actualPlaybackDuration;
+  }
 }
 
 class WhaleAI {
-    constructor() {
-        this.audioManager = new WhaleAudioManager();
-        this.whistleDetector = new WhistleDetector();
-        this.currentEmotion = 'idle';
-        this.idleTimer = 0;
-        this.nextIdleInterval = 5000; // 5 seconds
-        this.initialized = false;
+  constructor() {
+    this.ctx = null;
+    this.audioManager = null;
+    this.state = 'idle';
+    this.idleTimer = this.getRandomIdleTime();
+    this.lastTime = performance.now();
+    this.initialized = false;
+  }
+
+  getRandomIdleTime() {
+    return 4.0 + Math.random() * 4.0; // 4 to 8 seconds
+  }
+
+  async init(sampleUrl = '/assets/audio/whale_cry_snippet.mp3') {
+    if (this.initialized) return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new AudioCtx();
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume();
     }
+    this.audioManager = new WhaleAudioManager(this.ctx);
+    await this.audioManager.loadAudio(sampleUrl);
+    this.initialized = true;
+    this.lastTime = performance.now();
+  }
 
-    async init() {
-        await this.audioManager.init();
-        await this.whistleDetector.init();
-        this.initialized = true;
+  triggerEmotion(emotion) {
+    if (!this.initialized || !this.audioManager) return;
+    const duration = this.audioManager.playCry(emotion);
+    this.setBusy(duration);
+  }
+
+  setBusy(duration) {
+    this.state = 'busy';
+    setTimeout(() => {
+      this.state = 'idle';
+      this.idleTimer = this.getRandomIdleTime();
+    }, (duration + 0.5) * 1000);
+  }
+
+  update() {
+    if (!this.initialized) return;
+
+    const now = performance.now();
+    const deltaTime = (now - this.lastTime) / 1000.0;
+    this.lastTime = now;
+
+    if (this.state === 'idle') {
+      this.idleTimer -= deltaTime;
+      if (this.idleTimer <= 0) {
+        const duration = this.audioManager.playCry('idle');
+        this.setBusy(duration);
+      }
     }
-
-    triggerEmotion(emotion) {
-        this.currentEmotion = emotion;
-        this.audioManager.playRandomSlice(emotion);
-        
-        // Reset idle timer when an emotion is manually triggered
-        this.idleTimer = 0;
-    }
-
-    update() {
-        if (!this.initialized) return;
-
-        // Check for player whistle to trigger response
-        if (this.whistleDetector.detectWhistle()) {
-            this.triggerEmotion('respond');
-            return;
-        }
-
-        // Handle random stagnant/idle background cries
-        this.idleTimer += 16; // Roughly 16ms per frame at 60fps
-        if (this.idleTimer >= this.nextIdleInterval) {
-            this.audioManager.playRandomSlice('idle');
-            this.idleTimer = 0;
-            // Randomize next interval between 6 to 14 seconds so it feels organic
-            this.nextIdleInterval = 6000 + Math.random() * 8000;
-        }
-    }
+  }
 }
+
+// Expose globally to window
+window.WhaleAI = WhaleAI;

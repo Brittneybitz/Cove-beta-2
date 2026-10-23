@@ -142,37 +142,11 @@ export default function App() {
 
   // Setup Whistle & Voice Detection Listener
   useEffect(() => {
-    const removeListener = whistleDetector.addListener({
-      onWhistle: ({ type }) => {
-        soundManager.playHappyWhaleCry();
-        setSummonTrigger((prev) => prev + 1);
-        setOreoBubble({
-          visible: true,
-          x: window.innerWidth / 2,
-          y: Math.max(120, window.innerHeight / 2 - 120),
-          text:
-            type === 'whistle'
-              ? '🎶 Oreo heard your whistle! *Happy chirp!* 💕🐳'
-              : '🗣️ Oreo heard your voice! *Joyful chirp!* 💖',
-        });
-        showToast(
-          type === 'whistle'
-            ? '🎶 Whistle heard! Oreo is swimming to greet you! 💕'
-            : '🗣️ Voice heard! Oreo heard your call! 💕'
-        );
-      },
-      onAudioLevel: (lvl) => {
-        setAudioMicLevel(lvl);
-      },
-      onError: () => {
-        setIsMicListening(false);
-        showToast('Microphone access was denied or unavailable.');
-      },
-    });
+    // Ensure you have a file named 'whale_cry.wav' in your project's 'public' folder
+    initWhaleAudio('/whale_cry.wav');
 
     return () => {
-      removeListener();
-      whistleDetector.stop();
+      cleanupWhaleAudio();
     };
   }, []);
 

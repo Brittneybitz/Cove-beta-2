@@ -144,19 +144,28 @@ export default function App() {
   const [postCatchData, setPostCatchData] = useState<PostCatchData | null>(null);
   
   // Initialize and run the Whale AI Background Loop
+  // Initialize and run the Whale AI Background Loop
   useEffect(() => {
     let animId: number;
 
-    const initAI = async () => {
+    // Start audio context on first user click to bypass browser autoplay rules
+    const startAudioContextOnInteraction = async () => {
       if ((window as any).WhaleAI && !whaleAiRef.current) {
-        const ai = new (window as any).WhaleAI();
-        await ai.init('/assets/audio/whale_cry_snippet.mp3');
-        whaleAiRef.current = ai;
-        (window as any).whaleAIInstance = ai; // Attaches global reference for soundManager
+        try {
+          const ai = new (window as any).WhaleAI();
+          // Fixed path: points directly to public/assets/audio/
+          await ai.init('/assets/audio/whale_cry_snippet.mp3');
+          whaleAiRef.current = ai;
+          (window as any).whaleAIInstance = ai;
+          console.log("Whale AI Engine initialized successfully!");
+        } catch (err) {
+          console.error("Audio AI Init Error:", err);
+        }
       }
+      window.removeEventListener('click', startAudioContextOnInteraction);
     };
 
-    initAI();
+    window.addEventListener('click', startAudioContextOnInteraction);
 
     const loop = () => {
       if (whaleAiRef.current) {
@@ -169,6 +178,7 @@ export default function App() {
 
     return () => {
       if (animId) cancelAnimationFrame(animId);
+      window.removeEventListener('click', startAudioContextOnInteraction);
     };
   }, []);
 

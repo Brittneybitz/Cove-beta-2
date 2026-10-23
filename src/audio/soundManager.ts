@@ -182,6 +182,7 @@ export const soundManager = {
             whaleAudioManagerInstance.setMuted(muted);
         }
     },
+    isAmbientMusicPlaying: () => whaleAI !== null && whaleAI.isRunning,
     triggerBattle: () => whaleAI?.triggerEvent('battle'),
     triggerRespond: () => whaleAI?.triggerEvent('respond')
 };

@@ -77,7 +77,7 @@ class WhaleAI {
     idleTimer: number = this.getRandomIdleTime();
     lastTime: number = performance.now();
     isRunning: boolean = false;
-    whistleDetector: WhistleDetector | null = null;
+    whistleDetectorInstance: any | null = null;
     animationFrameId: number | null = null;
 
     constructor(audioManager: WhaleAudioManager) {
@@ -108,7 +108,6 @@ class WhaleAI {
     }
 
     update(deltaTime: number) {
-        if (this.whistleDetector) this.whistleDetector.update(deltaTime);
         if (this.state === 'idle') {
             this.idleTimer -= deltaTime;
             if (this.idleTimer <= 0) {
@@ -140,7 +139,6 @@ let whaleAI: WhaleAI | null = null;
 let whaleAudioManagerInstance: WhaleAudioManager | null = null;
 let isMutedState = false;
 
-// Explicitly export initWhaleAudio so any file importing it directly won't crash
 export const initWhaleAudio = async (audioUrl: string) => {
     if (whaleAI) return; 
     
@@ -149,16 +147,8 @@ export const initWhaleAudio = async (audioUrl: string) => {
     whaleAudioManagerInstance.setMuted(isMutedState);
 
     whaleAI = new WhaleAI(whaleAudioManagerInstance);
-
-    const detector = new WhistleDetector(audioContext, () => {
-        whaleAI?.triggerEvent('respond');
-    });
-    
-    whaleAI.whistleDetector = detector;
-    await detector.start();
-    
-    const success = await whaleAudioManagerInstance.loadAudio(audioUrl);
-    if (success) whaleAI.start();
+    await whaleAudioManagerInstance.loadAudio(audioUrl);
+    whaleAI.start();
 };
 
 export const cleanupWhaleAudio = () => {
@@ -183,6 +173,15 @@ export const soundManager = {
         }
     },
     isAmbientMusicPlaying: () => whaleAI !== null && whaleAI.isRunning,
+    playHappyWhaleCry: () => whaleAI?.triggerEvent('respond'),
+    playWhaleChirp: () => whaleAI?.triggerEvent('idle'),
+    playAttackSplash: () => whaleAI?.triggerEvent('battle'),
+    playAttackCrash: () => whaleAI?.triggerEvent('battle'),
+    playFeed: () => whaleAI?.triggerEvent('respond'),
+    playFluteCatchChime: () => whaleAI?.triggerEvent('respond'),
+    playPokemonVictoryFanfare: () => whaleAI?.triggerEvent('respond'),
+    playLevelUpFanfare: () => whaleAI?.triggerEvent('respond'),
+    playCatchSuccess: () => whaleAI?.triggerEvent('respond'),
     playWildEncounterAlert: () => whaleAI?.triggerEvent('battle'),
     triggerBattle: () => whaleAI?.triggerEvent('battle'),
     triggerRespond: () => whaleAI?.triggerEvent('respond')

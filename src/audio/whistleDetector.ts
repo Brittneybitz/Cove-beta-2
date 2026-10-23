@@ -1,64 +1,93 @@
-export class WhistleDetector {
-    ctx: AudioContext;
-    onWhistleDetected: () => void;
+type WhistleCallback = (data: { type: 'whistle' | 'voice' }) => void;
+type LevelCallback = (level: number) => void;
+type ErrorCallback = () => void;
+
+class WhistleDetectorManager {
+    ctx: AudioContext | null = null;
     analyser: AnalyserNode | null = null;
+    mediaStream: MediaStream | null = null;
     isActive: boolean = false;
-    cooldownTimer: number = 0;
+    listeners: {
+        onWhistle: WhistleCallback;
+        onAudioLevel: LevelCallback;
+        onError: ErrorCallback;
+    }[] = [];
+    animationId: number | null = null;
+    cooldown: number = 0;
 
-    constructor(ctx: AudioContext, onWhistleDetected: () => void) {
-        this.ctx = ctx;
-        this.onWhistleDetected = onWhistleDetected;
-    }
-
-    async start() {
+    async start(): Promise<boolean> {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const source = this.ctx.createMediaStreamSource(stream);
-            
+            this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = this.ctx.createMediaStreamSource(this.mediaStream);
+
             this.analyser = this.ctx.createAnalyser();
             this.analyser.fftSize = 1024;
-            this.analyser.smoothingTimeConstant = 0.8; 
-            
+            this.analyser.smoothingTimeConstant = 0.8;
             source.connect(this.analyser);
+
             this.isActive = true;
-            console.log("[WhistleDetector] Microphone accessed. Active.");
+            this.monitorAudio();
             return true;
-        } catch (err: any) {
-            console.warn(`[WhistleDetector] Mic access denied: ${err.message}`);
+        } catch (_err) {
+            this.listeners.forEach((l) => l.onError());
             return false;
         }
     }
 
-    update(deltaTime: number) {
-        if (!this.isActive || !this.analyser) return;
-
-        if (this.cooldownTimer > 0) {
-            this.cooldownTimer -= deltaTime;
-            return;
+    stop() {
+        this.isActive = false;
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+        if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach((track) => track.stop());
+            this.mediaStream = null;
         }
+        if (this.ctx) {
+            this.ctx.close();
+            this.ctx = null;
+        }
+    }
+
+    addListener(callbacks: {
+        onWhistle: WhistleCallback;
+        onAudioLevel: LevelCallback;
+        onError: ErrorCallback;
+    }) {
+        this.listeners.push(callbacks);
+        return () => {
+            this.listeners = this.listeners.filter((l) => l !== callbacks);
+        };
+    }
+
+    private monitorAudio() {
+        if (!this.isActive || !this.analyser) return;
 
         const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteFrequencyData(dataArray);
 
-        const startBin = 25;
-        const endBin = 70;
-        let totalEnergy = 0;
-        let peakEnergy = 0;
-
-        for (let i = startBin; i < endBin; i++) {
-            totalEnergy += dataArray[i];
-            if (dataArray[i] > peakEnergy) peakEnergy = dataArray[i];
+        let sum = 0;
+        let peak = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+            if (dataArray[i] > peak) peak = dataArray[i];
         }
 
-        const averageEnergy = totalEnergy / (endBin - startBin);
+        const avgLevel = sum / dataArray.length;
+        const normalizedLevel = Math.min(100, Math.floor((avgLevel / 128) * 100));
 
-        if (peakEnergy > 200 && averageEnergy > 50) {
-            console.log(`[WhistleDetector] High frequency detected! (Peak: ${peakEnergy})`);
-            this.onWhistleDetected();
-            this.cooldownTimer = 3.0;
+        this.listeners.forEach((l) => l.onAudioLevel(normalizedLevel));
+
+        if (this.cooldown > 0) {
+            this.cooldown -= 0.1;
+        } else if (peak > 195 && avgLevel > 35) {
+            this.cooldown = 2.5; 
+            const whistleType = peak > 220 ? 'whistle' : 'voice';
+            this.listeners.forEach((l) => l.onWhistle({ type: whistleType }));
         }
+
+        this.animationId = requestAnimationFrame(() => this.monitorAudio());
     }
 }
 
-// Fallback export to satisfy any lowercase imports
-export const whistleDetector = WhistleDetector;
+export const whistleDetector = new WhistleDetectorManager();
+export type { WhistleDetectorManager };

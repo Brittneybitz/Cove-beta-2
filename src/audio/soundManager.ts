@@ -171,7 +171,6 @@ export const cleanupWhaleAudio = () => {
     }
 };
 
-// Full soundManager object matching all UI component calls
 export const soundManager = {
     init: initWhaleAudio,
     cleanup: cleanupWhaleAudio,
@@ -183,6 +182,7 @@ export const soundManager = {
         }
     },
     isAmbientMusicPlaying: () => whaleAI !== null && whaleAI.isRunning,
+    playWildEncounterAlert: () => whaleAI?.triggerEvent('battle'),
     triggerBattle: () => whaleAI?.triggerEvent('battle'),
     triggerRespond: () => whaleAI?.triggerEvent('respond')
 };

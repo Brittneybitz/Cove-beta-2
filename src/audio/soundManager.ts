@@ -3,9 +3,12 @@ import { WhistleDetector } from './whistleDetector';
 class WhaleAudioManager {
     ctx: AudioContext;
     buffer: AudioBuffer | null = null;
+    masterGain: GainNode | null = null;
 
     constructor(ctx: AudioContext) {
         this.ctx = ctx;
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.connect(this.ctx.destination);
     }
 
     async loadAudio(url: string) {
@@ -21,8 +24,14 @@ class WhaleAudioManager {
         }
     }
 
+    setMuted(muted: boolean) {
+        if (this.masterGain && this.ctx) {
+            this.masterGain.gain.setValueAtTime(muted ? 0 : 1, this.ctx.currentTime);
+        }
+    }
+
     playCry(emotion: 'idle' | 'battle' | 'respond') {
-        if (!this.buffer) return 0;
+        if (!this.buffer || !this.masterGain) return 0;
 
         let rate = 1.0;
         if (emotion === 'idle') rate = 1.5 + Math.random() * 0.5;
@@ -46,7 +55,7 @@ class WhaleAudioManager {
 
         source.connect(filter);
         filter.connect(gainNode);
-        gainNode.connect(this.ctx.destination);
+        gainNode.connect(this.masterGain);
 
         const now = this.ctx.currentTime;
         const actualDuration = duration / rate;
@@ -128,13 +137,17 @@ class WhaleAI {
 
 let audioContext: AudioContext | null = null;
 let whaleAI: WhaleAI | null = null;
+let whaleAudioManagerInstance: WhaleAudioManager | null = null;
+let isMutedState = false;
 
 export const initWhaleAudio = async (audioUrl: string) => {
     if (whaleAI) return; 
     
     audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const whaleAudio = new WhaleAudioManager(audioContext);
-    whaleAI = new WhaleAI(whaleAudio);
+    whaleAudioManagerInstance = new WhaleAudioManager(audioContext);
+    whaleAudioManagerInstance.setMuted(isMutedState);
+
+    whaleAI = new WhaleAI(whaleAudioManagerInstance);
 
     const detector = new WhistleDetector(audioContext, () => {
         whaleAI?.triggerEvent('respond');
@@ -143,7 +156,7 @@ export const initWhaleAudio = async (audioUrl: string) => {
     whaleAI.whistleDetector = detector;
     await detector.start();
     
-    const success = await whaleAudio.loadAudio(audioUrl);
+    const success = await whaleAudioManagerInstance.loadAudio(audioUrl);
     if (success) whaleAI.start();
 };
 
@@ -158,10 +171,17 @@ export const cleanupWhaleAudio = () => {
     }
 };
 
-// Satisfy any component importing `soundManager` as an object
+// Full soundManager object matching all UI component calls
 export const soundManager = {
     init: initWhaleAudio,
     cleanup: cleanupWhaleAudio,
+    getMuted: () => isMutedState,
+    setMuted: (muted: boolean) => {
+        isMutedState = muted;
+        if (whaleAudioManagerInstance) {
+            whaleAudioManagerInstance.setMuted(muted);
+        }
+    },
     triggerBattle: () => whaleAI?.triggerEvent('battle'),
     triggerRespond: () => whaleAI?.triggerEvent('respond')
 };

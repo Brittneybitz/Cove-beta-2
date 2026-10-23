@@ -1150,4 +1150,15 @@ export default function App() {
       <CollegeModal
         isOpen={isCollegeOpen}
         onClose={() => setIsCollegeOpen(false)}
-        roster
+        roster={roster}
+        onEnrollCollege={handleEnrollCollege}
+        playerCoins={inventory.playerCoins}
+      />
+
+      <SpeciesCatalogModal
+        isOpen={isCatalogOpen}
+        onClose={() => setIsCatalogOpen(false)}
+      />
+    </div>
+  );
+}

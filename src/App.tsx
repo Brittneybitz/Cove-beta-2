@@ -142,6 +142,35 @@ export default function App() {
 
   // Post-Catch Inspection & Butcher Screen
   const [postCatchData, setPostCatchData] = useState<PostCatchData | null>(null);
+  
+  // Initialize and run the Whale AI Background Loop
+  useEffect(() => {
+    let animId: number;
+
+    const initAI = async () => {
+      if ((window as any).WhaleAI && !whaleAiRef.current) {
+        const ai = new (window as any).WhaleAI();
+        await ai.init('/assets/audio/whale_cry_snippet.mp3');
+        whaleAiRef.current = ai;
+        (window as any).whaleAIInstance = ai; // Attaches global reference for soundManager
+      }
+    };
+
+    initAI();
+
+    const loop = () => {
+      if (whaleAiRef.current) {
+        whaleAiRef.current.update();
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, []);
 
   // Setup Whistle & Voice Detection Listener + Trigger Custom Cry AI
   useEffect(() => {

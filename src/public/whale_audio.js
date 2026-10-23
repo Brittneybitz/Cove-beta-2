@@ -3,21 +3,17 @@ class WhaleAudioManager {
   constructor(ctx) {
     this.ctx = ctx;
     this.buffer = null;
-    this.highpassFilter = null;
   }
 
-  async loadAudio(urlOrBuffer) {
+  async loadAudio(url) {
     try {
-      if (typeof urlOrBuffer === 'string') {
-        const response = await fetch(urlOrBuffer);
-        const arrayBuffer = await response.arrayBuffer();
-        this.buffer = await this.ctx.decodeAudioData(arrayBuffer);
-      } else if (urlOrBuffer instanceof ArrayBuffer) {
-        this.buffer = await this.ctx.decodeAudioData(urlOrBuffer);
-      }
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      this.buffer = await this.ctx.decodeAudioData(arrayBuffer);
+      console.log("Custom whale audio loaded successfully from:", url);
       return true;
     } catch (err) {
-      console.error("Failed to decode audio:", err);
+      console.error("Failed to load custom whale audio:", err);
       return false;
     }
   }
@@ -25,17 +21,17 @@ class WhaleAudioManager {
   playCry(emotion = 'idle') {
     if (!this.buffer || !this.ctx) return 0;
 
-    // Determine Pitch / Speed Profile based on Emotion (matches prototype)
+    // Pitch & Speed variation based on emotion
     let rate = 1.0;
     if (emotion === 'idle') {
-      rate = 1.5 + Math.random() * 0.5; // Cute high pitch (1.5x to 2.0x)
+      rate = 1.5 + Math.random() * 0.5; // High cute pitch (1.5x to 2.0x)
     } else if (emotion === 'battle') {
-      rate = 1.2 + Math.random() * 0.3; // Deeper, more aggressive (1.2x to 1.5x)
+      rate = 1.2 + Math.random() * 0.3; // Deeper battle cry (1.2x to 1.5x)
     } else if (emotion === 'respond') {
-      rate = 2.0 + Math.random() * 0.8; // Very high, excited response (2.0x to 2.8x)
+      rate = 2.0 + Math.random() * 0.8; // Very high excited whistle response (2.0x to 2.8x)
     }
 
-    // Randomized Slice Selection (0.5s to 2.0s)
+    // Pick a random slice of the audio file (0.5s to 2.0s)
     const minDuration = 0.5;
     const maxDuration = 2.0;
     let duration = minDuration + Math.random() * (maxDuration - minDuration);
@@ -44,12 +40,11 @@ class WhaleAudioManager {
     const maxStart = Math.max(0, this.buffer.duration - duration);
     const startTime = Math.random() * maxStart;
 
-    // Audio Graph
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
     source.playbackRate.value = rate;
 
-    // Highpass filter (strips out deep rumbles to keep it high and cute)
+    // Highpass filter to keep sound high and cute
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'highpass';
     filter.frequency.value = 600;
@@ -60,7 +55,6 @@ class WhaleAudioManager {
     filter.connect(gainNode);
     gainNode.connect(this.ctx.destination);
 
-    // Envelope Fade In / Out
     const now = this.ctx.currentTime;
     const actualPlaybackDuration = duration / rate;
     const fadeTime = Math.min(0.1, actualPlaybackDuration / 2);
@@ -133,5 +127,4 @@ class WhaleAI {
   }
 }
 
-// Expose globally to window
 window.WhaleAI = WhaleAI;

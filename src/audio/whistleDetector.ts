@@ -1,4 +1,4 @@
-export class WhistleDetectorClass {
+export class WhistleDetector {
     ctx: AudioContext;
     onWhistleDetected: () => void;
     analyser: AnalyserNode | null = null;
@@ -60,8 +60,5 @@ export class WhistleDetectorClass {
     }
 }
 
-export const whistleDetector = {
-    create(ctx: AudioContext, callback: () => void) {
-        return new WhistleDetectorClass(ctx, callback);
-    }
-};
+// Fallback export to satisfy any lowercase imports
+export const whistleDetector = WhistleDetector;

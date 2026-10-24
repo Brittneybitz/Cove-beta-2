@@ -3,6 +3,8 @@ import { CreatureType } from '../types/game';
 
 export interface CreatureRig {
   root: THREE.Group;
+  modelWrapper?: THREE.Group;
+  innerMesh?: THREE.Object3D;
   tail?: THREE.Group;
   flukes?: THREE.Object3D;
   leftFin?: THREE.Object3D;
@@ -11,6 +13,8 @@ export interface CreatureRig {
   nameSprite?: THREE.Sprite;
   creatureType: CreatureType;
   updateAnimation: (time: number, speedMultiplier: number) => void;
+  setRotationYOffset?: (deg: number) => void;
+  isCustomModel?: boolean;
 }
 
 // Helper to generate procedural canvas texture for countershading or markings
@@ -82,31 +86,64 @@ export function createNameplate(text: string, subtext: string = ''): THREE.Sprit
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  const spriteMat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+  });
   const sprite = new THREE.Sprite(spriteMat);
-  sprite.scale.set(4.2, 1.15, 1);
+  sprite.scale.set(3.2, 0.88, 1);
   return sprite;
 }
 
-export function createOrcaRig(): CreatureRig {
+export function createOrcaRig(
+  nameText: string = 'Oreo 🌟',
+  customSkinTexture?: THREE.Texture | null,
+  rotationYDeg: number = 0
+): CreatureRig {
   const root = new THREE.Group();
+  const modelWrapper = new THREE.Group();
+  root.add(modelWrapper);
 
-  // Materials
+  let currentRotYDeg = rotationYDeg;
+  if (currentRotYDeg) {
+    modelWrapper.rotation.y = (currentRotYDeg * Math.PI) / 180;
+  }
+
+  // Materials: Retain MeshStandardMaterial physical properties, pure white base with map, black emissive
   const blackSkinMat = new THREE.MeshStandardMaterial({
-    color: 0x0c1222,
-    roughness: 0.15,
-    metalness: 0.1,
+    color: customSkinTexture ? 0xffffff : 0x0c1222,
+    map: customSkinTexture || null,
+    roughness: 0.35,
+    metalness: 0.05,
+    side: THREE.FrontSide,
   });
+  blackSkinMat.emissive.setHex(0x000000);
+
+  if (customSkinTexture) {
+    customSkinTexture.colorSpace = THREE.SRGBColorSpace;
+    customSkinTexture.wrapS = THREE.RepeatWrapping;
+    customSkinTexture.wrapT = THREE.RepeatWrapping;
+    customSkinTexture.needsUpdate = true;
+  }
+
   const whitePatchMat = new THREE.MeshStandardMaterial({
     color: 0xf8fafc,
-    roughness: 0.25,
+    roughness: 0.3,
     metalness: 0.05,
+    side: THREE.FrontSide,
   });
+  whitePatchMat.emissive.setHex(0x000000);
+
   const darkFinMat = new THREE.MeshStandardMaterial({
-    color: 0x090d18,
-    roughness: 0.2,
-    metalness: 0.1,
+    color: customSkinTexture ? 0xffffff : 0x090d18,
+    map: customSkinTexture || null,
+    roughness: 0.35,
+    metalness: 0.05,
+    side: THREE.FrontSide,
   });
+  darkFinMat.emissive.setHex(0x000000);
 
   // 1. Torso
   const bodyGeo = new THREE.ConeGeometry(1.3, 4.4, 20, 4);
@@ -114,21 +151,22 @@ export function createOrcaRig(): CreatureRig {
   bodyGeo.scale(1.15, 0.95, 1.0);
   const bodyMesh = new THREE.Mesh(bodyGeo, blackSkinMat);
   bodyMesh.position.set(0, 0, 0.5);
-  root.add(bodyMesh);
+  bodyMesh.frustumCulled = false;
+  modelWrapper.add(bodyMesh);
 
   // Snout/Head dome
   const headGeo = new THREE.SphereGeometry(1.2, 18, 14);
   headGeo.scale(0.95, 0.8, 1.4);
   const headMesh = new THREE.Mesh(headGeo, blackSkinMat);
   headMesh.position.set(0, -0.05, 2.2);
-  root.add(headMesh);
+  modelWrapper.add(headMesh);
 
   // White belly slab
   const bellyGeo = new THREE.SphereGeometry(1.1, 16, 12);
   bellyGeo.scale(0.85, 0.35, 1.8);
   const bellyMesh = new THREE.Mesh(bellyGeo, whitePatchMat);
   bellyMesh.position.set(0, -0.65, 1.1);
-  root.add(bellyMesh);
+  modelWrapper.add(bellyMesh);
 
   // White eye markings (left & right)
   const patchGeo = new THREE.SphereGeometry(0.35, 12, 8);
@@ -136,12 +174,12 @@ export function createOrcaRig(): CreatureRig {
   const leftPatch = new THREE.Mesh(patchGeo, whitePatchMat);
   leftPatch.position.set(0.95, 0.25, 2.3);
   leftPatch.rotation.set(-0.2, 0.3, -0.15);
-  root.add(leftPatch);
+  modelWrapper.add(leftPatch);
 
   const rightPatch = new THREE.Mesh(patchGeo, whitePatchMat);
   rightPatch.position.set(-0.95, 0.25, 2.3);
   rightPatch.rotation.set(-0.2, -0.3, 0.15);
-  root.add(rightPatch);
+  modelWrapper.add(rightPatch);
 
   // Tall Dorsal fin
   const dorsalGeo = new THREE.ConeGeometry(0.3, 2.2, 8);
@@ -149,7 +187,7 @@ export function createOrcaRig(): CreatureRig {
   dorsalGeo.rotateX(-0.3);
   const dorsalMesh = new THREE.Mesh(dorsalGeo, darkFinMat);
   dorsalMesh.position.set(0, 1.7, 0.3);
-  root.add(dorsalMesh);
+  modelWrapper.add(dorsalMesh);
 
   // Pectoral flippers (Left & Right)
   const finGeo = new THREE.BoxGeometry(0.12, 0.35, 1.5);
@@ -161,7 +199,7 @@ export function createOrcaRig(): CreatureRig {
   leftFin.position.set(1.1, -0.3, 1.4);
   leftFin.rotation.set(0.1, 0.4, -0.4);
   leftFin.add(leftFinMesh);
-  root.add(leftFin);
+  modelWrapper.add(leftFin);
 
   const rightFin = new THREE.Group();
   const rightFinMesh = new THREE.Mesh(finGeo, darkFinMat);
@@ -169,7 +207,7 @@ export function createOrcaRig(): CreatureRig {
   rightFin.position.set(-1.1, -0.3, 1.4);
   rightFin.rotation.set(0.1, -0.4, 0.4);
   rightFin.add(rightFinMesh);
-  root.add(rightFin);
+  modelWrapper.add(rightFin);
 
   // Tail peduncle joint
   const tail = new THREE.Group();
@@ -189,28 +227,38 @@ export function createOrcaRig(): CreatureRig {
   flukes.rotation.x = 0.1;
   tail.add(flukes);
 
-  root.add(tail);
+  modelWrapper.add(tail);
 
   // Nameplate Sprite
-  const nameSprite = createNameplate('Oreo 🌟', 'Companion Orca');
+  const nameSprite = createNameplate(nameText, 'Companion Orca');
   nameSprite.position.set(0, 3.4, 0.5);
   root.add(nameSprite);
 
+  root.traverse((c) => {
+    c.frustumCulled = false;
+  });
+
   return {
     root,
+    modelWrapper,
     tail,
     flukes,
     leftFin,
     rightFin,
     nameSprite,
     creatureType: 'orca',
+    setRotationYOffset: (deg: number) => {
+      currentRotYDeg = deg;
+      modelWrapper.rotation.y = (deg * Math.PI) / 180;
+    },
     updateAnimation: (time: number, speedMultiplier: number) => {
       const freq = time * 4.5 * speedMultiplier;
       // Tail sway & pitch
       tail.rotation.y = Math.sin(freq) * 0.28;
       flukes.rotation.x = Math.sin(freq + 0.8) * 0.35;
-      // Body undulating pitch & roll
-      root.rotation.z = Math.sin(freq * 0.5) * 0.08;
+      // Body undulating pitch & roll inside wrapper
+      modelWrapper.rotation.y = ((currentRotYDeg || 0) * Math.PI) / 180;
+      modelWrapper.rotation.z = Math.sin(freq * 0.5) * 0.08;
       // Flippers gentle balancing
       leftFin.rotation.z = -0.4 + Math.sin(freq) * 0.12;
       rightFin.rotation.z = 0.4 - Math.sin(freq) * 0.12;
@@ -218,8 +266,14 @@ export function createOrcaRig(): CreatureRig {
   };
 }
 
-export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wild Shark'): CreatureRig {
+export function createSharkRig(
+  type: CreatureType = 'shark',
+  name: string = 'Wild Shark',
+  customSkinTexture?: THREE.Texture | null
+): CreatureRig {
   const root = new THREE.Group();
+  const modelWrapper = new THREE.Group();
+  root.add(modelWrapper);
 
   const isHammerhead = type === 'hammerhead';
   const bodyColor = isHammerhead ? 0x475569 : 0x334155;
@@ -230,6 +284,13 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
     roughness: 0.3,
     metalness: 0.15,
   });
+
+  if (customSkinTexture) {
+    skinMat.map = customSkinTexture;
+    skinMat.color.setHex(0xffffff);
+    customSkinTexture.colorSpace = THREE.SRGBColorSpace;
+    skinMat.needsUpdate = true;
+  }
   const bellyMat = new THREE.MeshStandardMaterial({
     color: bellyColor,
     roughness: 0.4,
@@ -244,13 +305,13 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
   bodyGeo.rotateX(Math.PI / 2);
   const bodyMesh = new THREE.Mesh(bodyGeo, skinMat);
   bodyMesh.position.set(0, 0, 0);
-  root.add(bodyMesh);
+  modelWrapper.add(bodyMesh);
 
   // Underside belly
   const bellyGeo = new THREE.BoxGeometry(1.2, 0.25, 3.6);
   const bellyMesh = new THREE.Mesh(bellyGeo, bellyMat);
   bellyMesh.position.set(0, -0.45, 0);
-  root.add(bellyMesh);
+  modelWrapper.add(bellyMesh);
 
   // Snout
   if (isHammerhead) {
@@ -258,30 +319,30 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
     const hammerGeo = new THREE.BoxGeometry(3.2, 0.4, 0.8);
     const hammerMesh = new THREE.Mesh(hammerGeo, skinMat);
     hammerMesh.position.set(0, 0, 2.1);
-    root.add(hammerMesh);
+    modelWrapper.add(hammerMesh);
 
     // Eyes on edges
     const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), eyeMat);
     leftEye.position.set(1.58, 0, 2.1);
-    root.add(leftEye);
+    modelWrapper.add(leftEye);
     const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), eyeMat);
     rightEye.position.set(-1.58, 0, 2.1);
-    root.add(rightEye);
+    modelWrapper.add(rightEye);
   } else {
     // Sharp conical snout
     const snoutGeo = new THREE.ConeGeometry(0.85, 1.8, 16);
     snoutGeo.rotateX(Math.PI / 2);
     const snoutMesh = new THREE.Mesh(snoutGeo, skinMat);
     snoutMesh.position.set(0, 0, 2.6);
-    root.add(snoutMesh);
+    modelWrapper.add(snoutMesh);
 
     // Eyes
     const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), eyeMat);
     leftEye.position.set(0.65, 0.15, 2.2);
-    root.add(leftEye);
+    modelWrapper.add(leftEye);
     const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), eyeMat);
     rightEye.position.set(-0.65, 0.15, 2.2);
-    root.add(rightEye);
+    modelWrapper.add(rightEye);
   }
 
   // Sharp Dorsal Fin
@@ -290,7 +351,7 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
   dorsalGeo.rotateX(-0.4);
   const dorsalMesh = new THREE.Mesh(dorsalGeo, skinMat);
   dorsalMesh.position.set(0, 1.3, 0.2);
-  root.add(dorsalMesh);
+  modelWrapper.add(dorsalMesh);
 
   // Pectoral Fins
   const pecGeo = new THREE.BoxGeometry(1.6, 0.08, 0.7);
@@ -298,12 +359,12 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
   const leftFin = new THREE.Mesh(pecGeo, skinMat);
   leftFin.position.set(1.2, -0.3, 0.8);
   leftFin.rotation.set(0.1, 0, -0.3);
-  root.add(leftFin);
+  modelWrapper.add(leftFin);
 
   const rightFin = new THREE.Mesh(pecGeo, skinMat);
   rightFin.position.set(-1.2, -0.3, 0.8);
   rightFin.rotation.set(0.1, 0, 0.3);
-  root.add(rightFin);
+  modelWrapper.add(rightFin);
 
   // Tail & Caudal fin
   const tail = new THREE.Group();
@@ -330,7 +391,7 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
   caudalBottom.position.set(0, -0.4, -2.1);
   tail.add(caudalBottom);
 
-  root.add(tail);
+  modelWrapper.add(tail);
 
   const nameSprite = createNameplate(name, isHammerhead ? 'Titan Predator' : 'Apex Hunter');
   nameSprite.position.set(0, 2.6, 0.2);
@@ -338,18 +399,22 @@ export function createSharkRig(type: CreatureType = 'shark', name: string = 'Wil
 
   return {
     root,
+    modelWrapper,
     tail,
     nameSprite,
     creatureType: type,
     updateAnimation: (time: number, speedMultiplier: number) => {
       const freq = time * 5.0 * speedMultiplier;
       tail.rotation.y = Math.sin(freq) * 0.45;
-      root.rotation.y = Math.sin(freq - 1.0) * 0.08;
+      modelWrapper.rotation.y = Math.sin(freq - 1.0) * 0.08;
     },
   };
 }
 
-export function createDolphinRig(name: string = 'Wild Dolphin'): CreatureRig {
+export function createDolphinRig(
+  name: string = 'Wild Dolphin',
+  customSkinTexture?: THREE.Texture | null
+): CreatureRig {
   const root = new THREE.Group();
 
   const skinMat = new THREE.MeshStandardMaterial({
@@ -357,6 +422,13 @@ export function createDolphinRig(name: string = 'Wild Dolphin'): CreatureRig {
     roughness: 0.2,
     metalness: 0.1,
   });
+
+  if (customSkinTexture) {
+    skinMat.map = customSkinTexture;
+    skinMat.color.setHex(0xffffff);
+    customSkinTexture.colorSpace = THREE.SRGBColorSpace;
+    skinMat.needsUpdate = true;
+  }
   const bellyMat = new THREE.MeshStandardMaterial({
     color: 0xf1f5f9,
     roughness: 0.3,
@@ -433,12 +505,15 @@ export function createDolphinRig(name: string = 'Wild Dolphin'): CreatureRig {
     updateAnimation: (time: number, speedMultiplier: number) => {
       const freq = time * 6.0 * speedMultiplier;
       tail.rotation.x = Math.sin(freq) * 0.35;
-      root.position.y = Math.sin(freq * 0.5) * 0.2;
+      bodyMesh.position.y = Math.sin(freq * 0.5) * 0.15;
     },
   };
 }
 
-export function createMantaRig(name: string = 'Wild Manta Ray'): CreatureRig {
+export function createMantaRig(
+  name: string = 'Wild Manta Ray',
+  customSkinTexture?: THREE.Texture | null
+): CreatureRig {
   const root = new THREE.Group();
 
   const skinMat = new THREE.MeshStandardMaterial({
@@ -446,6 +521,13 @@ export function createMantaRig(name: string = 'Wild Manta Ray'): CreatureRig {
     roughness: 0.25,
     metalness: 0.1,
   });
+
+  if (customSkinTexture) {
+    skinMat.map = customSkinTexture;
+    skinMat.color.setHex(0xffffff);
+    customSkinTexture.colorSpace = THREE.SRGBColorSpace;
+    skinMat.needsUpdate = true;
+  }
   const bellyMat = new THREE.MeshStandardMaterial({
     color: 0xf8fafc,
     roughness: 0.3,
@@ -512,7 +594,7 @@ export function createMantaRig(name: string = 'Wild Manta Ray'): CreatureRig {
       const wingFlap = Math.sin(freq) * 0.35;
       leftWing.rotation.z = wingFlap;
       rightWing.rotation.z = -wingFlap;
-      root.position.y = Math.sin(freq * 0.5) * 0.3;
+      bodyMesh.position.y = Math.sin(freq * 0.5) * 0.2;
     },
   };
 }

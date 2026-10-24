@@ -27,7 +27,20 @@ import {
   Radio,
   Mic,
   MicOff,
+  Terminal,
+  Activity,
+  Upload,
+  Gamepad2,
 } from 'lucide-react';
+import { organicAudioController, ControllerLogEntry } from '../audio/organicAudioController';
+import {
+  gamepadService,
+  GamepadLiveState,
+  GamepadConfig,
+  GamepadAction,
+  XBOX_BUTTON_NAMES,
+  ACTION_DESCRIPTIONS,
+} from '../services/gamepadService';
 
 interface HudOverlayProps {
   inventory: Inventory;
@@ -71,6 +84,20 @@ interface HudOverlayProps {
   isMicListening?: boolean;
   audioMicLevel?: number;
   onToggleMic?: () => void;
+  // Nintendogs & Voice Studio
+  isNintendogsMode?: boolean;
+  onToggleNintendogsMode?: () => void;
+  onOpenCryStudio?: () => void;
+  showNameplates?: boolean;
+  onToggleNameplates?: () => void;
+  onTapGlass?: () => void;
+  // Settings & Hideable Resources
+  isSettingsOpen?: boolean;
+  onToggleSettings?: () => void;
+  isResourcesHidden?: boolean;
+  onToggleResources?: () => void;
+  activeTabName?: string;
+  onOpenXboxTutorial?: () => void;
 }
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
@@ -107,11 +134,121 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   isMicListening = false,
   audioMicLevel = 0,
   onToggleMic,
+  isNintendogsMode = false,
+  onToggleNintendogsMode,
+  onOpenCryStudio,
+  showNameplates = true,
+  onToggleNameplates,
+  onTapGlass,
+  isSettingsOpen: propsIsSettingsOpen,
+  onToggleSettings,
+  isResourcesHidden: propsIsResourcesHidden,
+  onToggleResources,
+  activeTabName,
+  onOpenXboxTutorial,
 }) => {
   const [uiMinimized, setUiMinimized] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [internalSettingsOpen, setInternalSettingsOpen] = useState(false);
+  const isSettingsOpen = propsIsSettingsOpen !== undefined ? propsIsSettingsOpen : internalSettingsOpen;
+
+  const toggleSettings = () => {
+    if (onToggleSettings) {
+      onToggleSettings();
+    } else {
+      setInternalSettingsOpen((prev) => !prev);
+    }
+  };
+
+  const closeSettings = () => {
+    if (propsIsSettingsOpen !== undefined && onToggleSettings) {
+      if (propsIsSettingsOpen) onToggleSettings();
+    } else {
+      setInternalSettingsOpen(false);
+    }
+  };
+
+  const [internalResourcesHidden, setInternalResourcesHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('whale_cove_resources_hidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const isResourcesHidden = propsIsResourcesHidden !== undefined ? propsIsResourcesHidden : internalResourcesHidden;
+
+  const toggleResources = () => {
+    if (onToggleResources) {
+      onToggleResources();
+    } else {
+      setInternalResourcesHidden((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('whale_cove_resources_hidden', String(next));
+        } catch {}
+        return next;
+      });
+    }
+  };
+
+  // Gamepad State & Live Tracking
+  const [gamepadState, setGamepadState] = useState<GamepadLiveState>(gamepadService.getLiveState());
+  const [gamepadConfig, setGamepadConfig] = useState<GamepadConfig>(gamepadService.getConfig());
+  const [remappingAction, setRemappingAction] = useState<GamepadAction | null>(null);
+
+  useEffect(() => {
+    const unsub = gamepadService.subscribe((state) => {
+      setGamepadState(state);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleStartRemap = (action: GamepadAction) => {
+    soundManager.playClick();
+    setRemappingAction(action);
+    gamepadService.startListeningForRemap(action, () => {
+      setGamepadConfig(gamepadService.getConfig());
+      setRemappingAction(null);
+      soundManager.playCatchSuccess();
+    });
+  };
+
+  const handleCancelRemap = () => {
+    soundManager.playClick();
+    gamepadService.cancelRemap();
+    setRemappingAction(null);
+  };
+
+  const handleResetGamepadDefaults = () => {
+    soundManager.playClick();
+    gamepadService.resetToDefaults();
+    setGamepadConfig(gamepadService.getConfig());
+  };
+
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
   const [isMusicPlaying, setIsMusicPlaying] = useState(soundManager.isAmbientMusicPlaying());
+
+  // Organic Whale Audio Controller State
+  const [isOrganicEnabled, setIsOrganicEnabled] = useState(organicAudioController.getIsEnabled());
+  const [organicFileName, setOrganicFileName] = useState<string | null>(organicAudioController.getLoadedFileName());
+  const [aiState, setAiState] = useState<'idle' | 'busy' | 'off'>(organicAudioController.getAiState());
+  const [organicLogs, setOrganicLogs] = useState<ControllerLogEntry[]>(organicAudioController.getLogs());
+  const [showConsole, setShowConsole] = useState(false);
+
+  useEffect(() => {
+    const unsubState = organicAudioController.subscribeState(() => {
+      setIsOrganicEnabled(organicAudioController.getIsEnabled());
+      setOrganicFileName(organicAudioController.getLoadedFileName());
+      setAiState(organicAudioController.getAiState());
+    });
+    const unsubLogs = organicAudioController.subscribeLogs((logs) => {
+      setOrganicLogs(logs);
+    });
+    return () => {
+      unsubState();
+      unsubLogs();
+    };
+  }, []);
 
   // Mobile virtual joystick state
   const [mobileKeys, setMobileKeys] = useState<{
@@ -314,13 +451,45 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           <span>{isRaveParty ? 'Rave Active!' : `Rave (${inventory.raveCandies})`}</span>
         </button>
 
+        {/* Nintendogs Mode Screen Call Button */}
+        <button
+          onClick={() => {
+            soundManager.playClick();
+            onToggleNintendogsMode?.();
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap shadow-lg border ${
+            isNintendogsMode
+              ? 'bg-gradient-to-r from-pink-600 via-rose-600 to-amber-500 text-white border-pink-300 ring-2 ring-pink-400/50'
+              : 'bg-slate-800 hover:bg-slate-700 text-pink-300 border-pink-700/50'
+          }`}
+          title="Call Oreo directly to the screen like a Nintendog for close-up petting & feeding!"
+        >
+          <span>🐾</span>
+          <span>{isNintendogsMode ? 'Oreo at Glass 💕' : 'Screen Call'}</span>
+        </button>
+
+        {/* Whale Cry Studio Button */}
+        <button
+          onClick={() => {
+            soundManager.playClick();
+            onOpenCryStudio?.();
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-cyan-950 text-cyan-300 border border-cyan-700/50 transition whitespace-nowrap"
+          title="Record or upload custom cries for all 7 whale emotions!"
+        >
+          <Mic size={13} className="text-cyan-400" />
+          <span>Cry Studio 🎙️</span>
+        </button>
+
         {/* Settings Button */}
         <button
           onClick={() => {
             soundManager.playClick();
-            setIsSettingsOpen(true);
+            toggleSettings();
           }}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition border ${
+            isSettingsOpen ? 'bg-sky-600 text-white border-sky-400' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+          }`}
           title="Controls & Audio Settings"
         >
           <Settings size={14} />
@@ -391,100 +560,131 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         </button>
       </div>
 
-      {/* Top Right: Economy & Resources Bar */}
-      <div className="pointer-events-auto absolute top-16 right-4 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3 shadow-xl backdrop-blur-md max-w-[320px] flex flex-col gap-2.5">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <span className="text-xs font-bold text-amber-300">💰 Coins: {inventory.playerCoins}</span>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono text-emerald-400">
-              🍖 Meat: {inventory.whaleMeat + inventory.sharkMeat}
+      {/* Top Right: Economy & Resources Bar (Hideable) */}
+      {isResourcesHidden ? (
+        <button
+          onClick={() => {
+            soundManager.playClick();
+            toggleResources();
+          }}
+          className="pointer-events-auto absolute top-16 right-4 flex items-center gap-2.5 bg-slate-900/95 hover:bg-slate-800 border border-amber-500/50 px-3.5 py-2 rounded-2xl shadow-2xl backdrop-blur-md text-xs font-bold text-amber-300 transition transform hover:scale-105 active:scale-95 group cursor-pointer z-20"
+          title="Expand Resource Tab (or press View/Back on Xbox controller)"
+        >
+          <span className="flex items-center gap-1">💰 {inventory.playerCoins}</span>
+          <span className="text-slate-600">|</span>
+          <span className="text-emerald-400 font-mono text-[11px]">🍖 {inventory.whaleMeat + inventory.sharkMeat}</span>
+          <span className="text-slate-600">|</span>
+          <span className="text-sky-300 flex items-center gap-1 text-[11px] group-hover:text-sky-200 font-sans">
+            <Eye size={12} className="text-sky-400" />
+            <span>Resources ▼</span>
+          </span>
+        </button>
+      ) : (
+        <div className="pointer-events-auto absolute top-16 right-4 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3 shadow-xl backdrop-blur-md max-w-[320px] flex flex-col gap-2.5 z-20 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <span className="text-xs font-bold text-amber-300">💰 Coins: {inventory.playerCoins}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-emerald-400">
+                🍖 Meat: {inventory.whaleMeat + inventory.sharkMeat}
+              </span>
+              <button
+                onClick={() => {
+                  soundManager.playClick();
+                  onSummonWild();
+                }}
+                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white shadow transition"
+              >
+                Summon Wild ⚔️
+              </button>
+              {/* Hide Resources Tab Button */}
+              <button
+                onClick={() => {
+                  soundManager.playClick();
+                  toggleResources();
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition border border-transparent hover:border-slate-700"
+                title="Hide Resource Tab (or press View on Xbox controller)"
+              >
+                <EyeOff size={13} />
+              </button>
+            </div>
+          </div>
+
+          {/* Resources Grid */}
+          <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] font-mono">
+            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-slate-300">
+              🪵 Drift: {inventory.driftwood}
+            </div>
+            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-rose-300">
+              🪸 Coral: {inventory.coral}
+            </div>
+            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-amber-200">
+              🪨 Stone: {inventory.stone}
+            </div>
+            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-cyan-200">
+              🔩 Iron: {inventory.iron}
+            </div>
+          </div>
+
+          {/* Gems & Meat */}
+          <div className="grid grid-cols-5 gap-1 text-center font-mono text-[9px]">
+            <div className="bg-amber-950/50 p-1 rounded border border-amber-800/40 text-amber-300">
+              Topaz: {inventory.topaz}
+            </div>
+            <div className="bg-cyan-950/50 p-1 rounded border border-cyan-800/40 text-cyan-300">
+              Quartz: {inventory.quartz}
+            </div>
+            <div className="bg-rose-950/50 p-1 rounded border border-rose-800/40 text-rose-300">
+              Ruby: {inventory.ruby}
+            </div>
+            <div className="bg-blue-950/50 p-1 rounded border border-blue-800/40 text-blue-300">
+              Saph: {inventory.sapphire}
+            </div>
+            <div className="bg-purple-950/50 p-1 rounded border border-purple-800/40 text-purple-300">
+              Ameth: {inventory.amethyst}
+            </div>
+          </div>
+
+          {/* Flute Counts */}
+          <div className="flex items-center justify-between text-[11px] bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800 font-mono">
+            <span className="text-slate-400">🎵 Sea Flutes:</span>
+            <span className="text-cyan-300 font-bold">
+              Std:{inventory.standardFlutes} | Silv:{inventory.silverFlutes} | Gold:{inventory.goldenFlutes}
             </span>
+          </div>
+
+          {/* Quick Flute Crafting */}
+          <div className="grid grid-cols-3 gap-1 pt-0.5">
             <button
-              onClick={() => {
-                soundManager.playClick();
-                onSummonWild();
-              }}
-              className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white shadow transition"
+              onClick={() => onCraftFlute('standard')}
+              disabled={!canCraftStandard}
+              className={`py-1 rounded text-[10px] font-bold text-center ${
+                canCraftStandard ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'
+              }`}
             >
-              Summon Wild ⚔️
+              +Std Flute
+            </button>
+            <button
+              onClick={() => onCraftFlute('silver')}
+              disabled={!canCraftSilver}
+              className={`py-1 rounded text-[10px] font-bold text-center ${
+                canCraftSilver ? 'bg-slate-600 hover:bg-slate-500 text-white' : 'bg-slate-800 text-slate-500'
+              }`}
+            >
+              +Silver Flute
+            </button>
+            <button
+              onClick={() => onCraftFlute('golden')}
+              disabled={!canCraftGolden}
+              className={`py-1 rounded text-[10px] font-bold text-center ${
+                canCraftGolden ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-500'
+              }`}
+            >
+              +Gold Flute
             </button>
           </div>
         </div>
-
-        {/* Resources Grid */}
-        <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] font-mono">
-          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-slate-300">
-            🪵 Drift: {inventory.driftwood}
-          </div>
-          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-rose-300">
-            🪸 Coral: {inventory.coral}
-          </div>
-          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-amber-200">
-            🪨 Stone: {inventory.stone}
-          </div>
-          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-cyan-200">
-            🔩 Iron: {inventory.iron}
-          </div>
-        </div>
-
-        {/* Gems & Meat */}
-        <div className="grid grid-cols-5 gap-1 text-center font-mono text-[9px]">
-          <div className="bg-amber-950/50 p-1 rounded border border-amber-800/40 text-amber-300">
-            Topaz: {inventory.topaz}
-          </div>
-          <div className="bg-cyan-950/50 p-1 rounded border border-cyan-800/40 text-cyan-300">
-            Quartz: {inventory.quartz}
-          </div>
-          <div className="bg-rose-950/50 p-1 rounded border border-rose-800/40 text-rose-300">
-            Ruby: {inventory.ruby}
-          </div>
-          <div className="bg-blue-950/50 p-1 rounded border border-blue-800/40 text-blue-300">
-            Saph: {inventory.sapphire}
-          </div>
-          <div className="bg-purple-950/50 p-1 rounded border border-purple-800/40 text-purple-300">
-            Ameth: {inventory.amethyst}
-          </div>
-        </div>
-
-        {/* Flute Counts */}
-        <div className="flex items-center justify-between text-[11px] bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800 font-mono">
-          <span className="text-slate-400">🎵 Sea Flutes:</span>
-          <span className="text-cyan-300 font-bold">
-            Std:{inventory.standardFlutes} | Silv:{inventory.silverFlutes} | Gold:{inventory.goldenFlutes}
-          </span>
-        </div>
-
-        {/* Quick Flute Crafting */}
-        <div className="grid grid-cols-3 gap-1 pt-0.5">
-          <button
-            onClick={() => onCraftFlute('standard')}
-            disabled={!canCraftStandard}
-            className={`py-1 rounded text-[10px] font-bold text-center ${
-              canCraftStandard ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'
-            }`}
-          >
-            +Std Flute
-          </button>
-          <button
-            onClick={() => onCraftFlute('silver')}
-            disabled={!canCraftSilver}
-            className={`py-1 rounded text-[10px] font-bold text-center ${
-              canCraftSilver ? 'bg-slate-600 hover:bg-slate-500 text-white' : 'bg-slate-800 text-slate-500'
-            }`}
-          >
-            +Silver Flute
-          </button>
-          <button
-            onClick={() => onCraftFlute('golden')}
-            disabled={!canCraftGolden}
-            className={`py-1 rounded text-[10px] font-bold text-center ${
-              canCraftGolden ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-500'
-            }`}
-          >
-            +Gold Flute
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Mobile Multi-Touch Virtual Controls Overlay */}
       {controlScheme === 'minecraft' && (
@@ -651,7 +851,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <h3 className="font-bold text-lg text-sky-200">Game & Control Settings</h3>
               </div>
               <button
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={closeSettings}
                 className="text-slate-400 hover:text-white text-sm"
               >
                 ✕
@@ -701,6 +901,267 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 </div>
               </div>
 
+              {/* Xbox One Controller Settings & Custom Mapping */}
+              <div className="border-t border-slate-800 pt-3.5 space-y-3">
+                <div className="bg-slate-950/90 border border-emerald-500/40 rounded-2xl p-3.5 space-y-3 shadow-xl">
+                  {/* Header & Mode Switch */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold text-sm">
+                        <Gamepad2 size={16} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-300">Xbox One & Gamepad Mode</span>
+                          <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded-md font-mono">
+                            Chromebook Ready
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Plug Xbox One controller into Chromebook USB or Bluetooth.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        soundManager.playClick();
+                        const next = !gamepadConfig.controllerMode;
+                        gamepadService.setControllerMode(next);
+                        setGamepadConfig(gamepadService.getConfig());
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-md ${
+                        gamepadConfig.controllerMode
+                          ? 'bg-emerald-600 text-white shadow-emerald-950'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {gamepadConfig.controllerMode ? 'CONTROLLER ON' : 'OFF'}
+                    </button>
+                  </div>
+
+                  {/* Connection Status Banner */}
+                  <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-xl p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${
+                          gamepadState.connected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+                        }`}
+                      />
+                      <div>
+                        <span className="text-xs font-semibold text-slate-200">
+                          {gamepadState.connected
+                            ? `${gamepadState.isXbox ? 'Xbox One Controller' : 'Gamepad'} Connected`
+                            : 'No Gamepad Detected'}
+                        </span>
+                        <p className="text-[10px] text-slate-400 truncate max-w-[240px]">
+                          {gamepadState.connected
+                            ? gamepadState.gamepadId
+                            : 'Plug in via USB or pair via Bluetooth to your Chromebook'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {onOpenXboxTutorial && (
+                        <button
+                          onClick={() => {
+                            soundManager.playClick();
+                            onOpenXboxTutorial();
+                          }}
+                          className="text-[10px] font-bold text-emerald-300 hover:text-emerald-200 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 px-2.5 py-1 rounded-lg transition flex items-center gap-1 shadow-sm"
+                          title="Open step-by-step beginner tutorial for Xbox One controller"
+                        >
+                          <span>🎮 Tutorial</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={handleResetGamepadDefaults}
+                        className="text-[10px] font-semibold text-slate-400 hover:text-sky-300 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-lg border border-slate-700 transition"
+                        title="Reset all bindings to standard Xbox One defaults"
+                      >
+                        Reset Defaults
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Controller Buttons Monitor */}
+                  {gamepadState.connected && (
+                    <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-2.5 space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                        <span>LIVE XBOX INPUT TESTER</span>
+                        <span className="text-emerald-400">Press buttons to test</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 font-mono text-[9px]">
+                        {[
+                          { id: 7, label: 'RT (Whistle)' },
+                          { id: 6, label: 'LT (Dive)' },
+                          { id: 4, label: 'LB (Tab)' },
+                          { id: 5, label: 'RB (Tab)' },
+                          { id: 0, label: 'A (Up/Pet)' },
+                          { id: 1, label: 'B (Back)' },
+                          { id: 2, label: 'X (Screen)' },
+                          { id: 3, label: 'Y (Cry)' },
+                          { id: 8, label: 'View (Res)' },
+                          { id: 9, label: 'Menu' },
+                          { id: 10, label: 'L3 (Sprint)' },
+                          { id: 11, label: 'R3 (Reset)' },
+                          { id: 12, label: '▲' },
+                          { id: 13, label: '▼' },
+                          { id: 14, label: '◄' },
+                          { id: 15, label: '►' },
+                        ].map((btn) => {
+                          const isPressed = gamepadState.buttonsDown[btn.id] || false;
+                          return (
+                            <span
+                              key={btn.id}
+                              className={`px-1.5 py-0.5 rounded border transition-all ${
+                                isPressed
+                                  ? 'bg-emerald-500 text-slate-950 font-bold border-emerald-300 scale-105 shadow-sm shadow-emerald-400'
+                                  : 'bg-slate-950/80 text-slate-400 border-slate-800'
+                              }`}
+                            >
+                              {btn.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tuning Sliders (Sensitivity, Deadzone, Invert Y) */}
+                  <div className="grid grid-cols-2 gap-2 bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 text-xs">
+                    <div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-slate-300">Look Sensitivity</span>
+                        <span className="font-mono text-emerald-400 font-bold">
+                          {gamepadConfig.lookSensitivity.toFixed(1)}x
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.2"
+                        max="3.0"
+                        step="0.1"
+                        value={gamepadConfig.lookSensitivity}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          gamepadService.setLookSensitivity(val);
+                          setGamepadConfig(gamepadService.getConfig());
+                        }}
+                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-slate-300">Stick Deadzone</span>
+                        <span className="font-mono text-emerald-400 font-bold">
+                          {Math.round(gamepadConfig.deadzone * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="0.30"
+                        step="0.01"
+                        value={gamepadConfig.deadzone}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          gamepadService.setDeadzone(val);
+                          setGamepadConfig(gamepadService.getConfig());
+                        }}
+                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+
+                    <div className="col-span-2 flex items-center justify-between pt-1 border-t border-slate-800/80">
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-300">Invert Vertical Look (Pitch)</span>
+                        <p className="text-[9px] text-slate-500">Flight-simulator style Y-axis inversion</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          soundManager.playClick();
+                          const next = !gamepadConfig.invertY;
+                          gamepadService.setInvertY(next);
+                          setGamepadConfig(gamepadService.getConfig());
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${
+                          gamepadConfig.invertY ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {gamepadConfig.invertY ? 'INVERTED' : 'STANDARD'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Custom Action Mapping List */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 font-bold">
+                      <span>🎮 Custom Xbox Button Mapping</span>
+                      {remappingAction && (
+                        <span className="text-amber-400 animate-pulse text-[10px] font-mono">
+                          Listening for button press...
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-xl divide-y divide-slate-800/60 max-h-56 overflow-y-auto">
+                      {(Object.keys(ACTION_DESCRIPTIONS) as GamepadAction[]).map((actionKey) => {
+                        const meta = ACTION_DESCRIPTIONS[actionKey];
+                        const btnIndex = gamepadConfig.mapping[actionKey];
+                        const btnName = XBOX_BUTTON_NAMES[btnIndex] || `Button ${btnIndex}`;
+                        const isRemappingThis = remappingAction === actionKey;
+
+                        return (
+                          <div
+                            key={actionKey}
+                            className={`flex items-center justify-between p-2 text-xs transition ${
+                              isRemappingThis ? 'bg-amber-950/40 border-l-2 border-amber-400' : ''
+                            }`}
+                          >
+                            <div className="pr-2">
+                              <span className="font-semibold text-slate-200 text-[11px]">{meta.label}</span>
+                              <p className="text-[9px] text-slate-400">{meta.desc}</p>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-mono border ${
+                                  actionKey === 'callWhale'
+                                    ? 'bg-emerald-950 border-emerald-500/60 text-emerald-300 font-bold'
+                                    : 'bg-slate-950 border-slate-700 text-sky-300'
+                                }`}
+                              >
+                                {btnName}
+                              </span>
+
+                              {isRemappingThis ? (
+                                <button
+                                  onClick={handleCancelRemap}
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 animate-pulse"
+                                >
+                                  Cancel
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartRemap(actionKey)}
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                                  title="Press any button on Xbox controller to map"
+                                >
+                                  Remap
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Audio Settings */}
               <div className="border-t border-slate-800 pt-3 space-y-3">
                 <div className="flex items-center justify-between">
@@ -741,6 +1202,27 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
+                    <Compass size={16} className="text-sky-400" />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200">Overhead 3D Nameplates</span>
+                      <p className="text-[10px] text-slate-400">Display floating tags above pod whales</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      soundManager.playClick();
+                      onToggleNameplates?.();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                      showNameplates ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {showNameplates ? 'SHOWN' : 'HIDDEN'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     {isMicListening ? <Mic size={16} className="text-emerald-400" /> : <MicOff size={16} className="text-slate-400" />}
                     <div>
                       <span className="text-xs font-semibold text-slate-200">Whistle Mic Summon</span>
@@ -759,17 +1241,326 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     {isMicListening ? 'ACTIVE' : 'OFF'}
                   </button>
                 </div>
+
+                {/* Whale Game Audio Controller & Organic AI Section */}
+                <div className="bg-slate-950/90 border border-purple-500/40 rounded-2xl p-3.5 space-y-3 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center font-bold text-sm">
+                        🐋
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-purple-300">Organic Audio Controller</span>
+                          <span className="text-[10px] bg-purple-950 text-purple-300 border border-purple-500/40 px-1.5 py-0.5 rounded-md font-mono">
+                            v1.0.0
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Runs in background when mic is on. Slices & pitch-shifts organic cries when you whistle or speak!
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${isMicListening ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}
+                        title={isMicListening ? 'Mic Active' : 'Mic Inactive'}
+                      />
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${aiState === 'busy' ? 'bg-amber-400' : aiState === 'idle' ? 'bg-sky-400' : 'bg-slate-600'}`}
+                        title={`AI Loop: ${aiState}`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Toggle Controller Switch */}
+                  <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-xl p-2.5">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200">Controller State</span>
+                      <p className="text-[10px] text-slate-400">
+                        {isOrganicEnabled ? 'Active: Running in background' : 'Inactive: Native audio only'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        soundManager.playClick();
+                        const next = !isOrganicEnabled;
+                        await organicAudioController.setEnabled(next);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        isOrganicEnabled
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-950'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {isOrganicEnabled ? 'ACTIVE (ON)' : 'TURN ON'}
+                    </button>
+                  </div>
+
+                  {/* Audio File Loader */}
+                  <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-xl p-2.5">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200">Organic Cry Sample</span>
+                      <p className="text-[10px] text-slate-400 truncate max-w-[190px]">
+                        {organicFileName || 'Default Harmonic Orca Cry'}
+                      </p>
+                    </div>
+
+                    <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1">
+                      <Upload size={12} />
+                      <span>Upload (.MP3/.WAV)</span>
+                      <input
+                        type="file"
+                        accept="audio/*,.mp3,.wav"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            await organicAudioController.loadAudioFile(file);
+                            soundManager.playCatchSuccess();
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Triggers Bar */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      onClick={() => {
+                        organicAudioController.triggerCry('respond');
+                      }}
+                      className="bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-200 text-[10px] py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer"
+                      title="Simulate speech or whistle response (2.0x - 2.8x pitch)"
+                    >
+                      🗣️ Test Respond
+                    </button>
+                    <button
+                      onClick={() => {
+                        organicAudioController.triggerCry('idle');
+                      }}
+                      className="bg-sky-950/80 hover:bg-sky-900 border border-sky-500/40 text-sky-200 text-[10px] py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer"
+                      title="Simulate ambient idle cry (1.5x - 2.0x pitch)"
+                    >
+                      🌊 Test Idle Cry
+                    </button>
+                    <button
+                      onClick={() => {
+                        organicAudioController.triggerCry('battle');
+                      }}
+                      className="bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-rose-200 text-[10px] py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer"
+                      title="Simulate battle cry (1.2x - 1.5x pitch)"
+                    >
+                      ⚔️ Test Battle
+                    </button>
+                  </div>
+
+                  {/* Diagnostic Console Toggle */}
+                  <div className="pt-1">
+                    <button
+                      onClick={() => setShowConsole((prev) => !prev)}
+                      className="w-full flex items-center justify-between text-[11px] text-slate-400 hover:text-slate-200 py-1 px-1.5 rounded-md hover:bg-slate-900/60 transition cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5 font-mono">
+                        <Terminal size={12} className="text-purple-400" />
+                        <span>Diagnostic Console ({organicLogs.length} events)</span>
+                      </span>
+                      <span>{showConsole ? '▲ Hide' : '▼ Show'}</span>
+                    </button>
+
+                    {showConsole && (
+                      <div className="mt-2 bg-[#010409] border border-gray-800 rounded-lg p-2.5 max-h-36 overflow-y-auto font-mono text-[10px] space-y-1 select-text">
+                        {organicLogs.map((log) => {
+                          const typeClass =
+                            log.type === 'system'
+                              ? 'text-sky-400 border-l-2 border-sky-400 pl-1.5'
+                              : log.type === 'audio'
+                              ? 'text-emerald-400 border-l-2 border-emerald-400 pl-1.5'
+                              : log.type === 'ai'
+                              ? 'text-purple-300 border-l-2 border-purple-400 pl-1.5'
+                              : log.type === 'mic'
+                              ? 'text-rose-400 border-l-2 border-rose-400 pl-1.5'
+                              : log.type === 'warn'
+                              ? 'text-amber-400 border-l-2 border-amber-400 pl-1.5'
+                              : 'text-slate-400 border-l-2 border-transparent pl-1.5';
+                          return (
+                            <div key={log.id} className={typeClass}>
+                              <span className="opacity-60">[{log.timestamp}]</span> {log.message}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Close Button */}
               <button
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={closeSettings}
                 className="w-full mt-2 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 font-bold text-xs text-white shadow-lg transition"
               >
                 Save & Close
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Nintendogs Close-Up Interactive Screen Dock */}
+      {isNintendogsMode && (
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/95 border-2 border-pink-400 rounded-3xl p-3 shadow-2xl flex flex-col items-center gap-2 max-w-[94vw] backdrop-blur-md animate-in slide-in-from-bottom-6 z-40">
+          <div className="flex items-center gap-2 text-xs font-bold text-pink-200">
+            <span className="w-2.5 h-2.5 rounded-full bg-pink-400 animate-ping" />
+            <span>🐾 Oreo at the Glass (Nintendogs Mode) — Stroke screen to pet, or feed treats! 💕</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            <button
+              onClick={() => {
+                soundManager.playHappyWhaleCry();
+                onFeedFish();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition"
+              title="Feed 1 Fish Treat directly at the glass"
+            >
+              <span>🐟</span>
+              <span>Feed Fish ({inventory.fishTreats})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundManager.playHappyWhaleCry();
+                onFeedKelp();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-500 text-white shadow transition"
+              title="Feed 1 Kelp Snack directly at the glass"
+            >
+              <span>🌿</span>
+              <span>Feed Kelp ({inventory.kelpSnacks})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundManager.playClick();
+                soundManager.playCuteCry();
+                onTapGlass?.();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-cyan-700 hover:bg-cyan-600 text-white shadow transition"
+              title="Tap the glass to get Oreo's attention!"
+            >
+              <span>🖐️</span>
+              <span>Tap Glass</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundManager.playEmotionCry('cute');
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-purple-700 hover:bg-purple-600 text-white shadow transition"
+              title="Playful chirp vocalization"
+            >
+              <span>💖</span>
+              <span>Pet / Chirp</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundManager.playClick();
+                onOpenCryStudio?.();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/50 shadow transition"
+              title="Open Whale Cry Studio"
+            >
+              <Mic size={13} />
+              <span>Cry Studio 🎙️</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundManager.playClick();
+                onToggleNintendogsMode?.();
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 shadow transition"
+              title="Let Oreo swim back into the cove"
+            >
+              <span>🌊</span>
+              <span>Let Oreo Swim Freely</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Xbox Controller On-Screen Quick Prompts Bar */}
+      {gamepadConfig.controllerMode && (
+        <div
+          className={`pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3.5 py-1.5 rounded-full shadow-2xl backdrop-blur-md text-[10px] font-mono z-30 select-none overflow-x-auto max-w-[96vw] border transition-all ${
+            gamepadState.connected
+              ? 'bg-slate-950/90 border-emerald-500/50 text-slate-200 ring-1 ring-emerald-500/20'
+              : 'bg-slate-950/70 border-slate-800 text-slate-400'
+          }`}
+        >
+          <span className="flex items-center gap-1 font-bold text-emerald-400 whitespace-nowrap">
+            <Gamepad2 size={13} />
+            <span>{gamepadState.connected ? 'Xbox Connected' : 'Xbox Mode'}</span>
+          </span>
+          {onOpenXboxTutorial && (
+            <button
+              onClick={() => {
+                soundManager.playClick();
+                onOpenXboxTutorial();
+              }}
+              className="px-2 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-bold hover:bg-emerald-900 transition flex items-center gap-1"
+              title="Open step-by-step Xbox tutorial"
+            >
+              <span>🎮 Tutorial</span>
+            </button>
+          )}
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-slate-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold text-sky-300">
+              LS
+            </span>{' '}
+            Move
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-slate-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold text-sky-300">
+              RS
+            </span>{' '}
+            Look
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-emerald-300 font-bold whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-emerald-950 border border-emerald-500/50 rounded text-[9px]">RT</span> Call
+            Whale 🐋
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-cyan-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-slate-800 border border-slate-700 rounded text-[9px]">LT</span> Dive
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-green-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-green-950 border border-green-500/50 rounded text-[9px]">A</span> Up / Pet
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-pink-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-pink-950 border border-pink-500/50 rounded text-[9px]">X</span> Screen Call
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-indigo-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-slate-800 border border-slate-700 rounded text-[9px]">LB/RB</span> Tabs
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-amber-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-amber-950 border border-amber-500/50 rounded text-[9px]">View</span>{' '}
+            {isResourcesHidden ? 'Show Res' : 'Hide Res'}
+          </span>
+          <span className="text-slate-600">•</span>
+          <span className="flex items-center gap-1 text-rose-300 whitespace-nowrap">
+            <span className="px-1.5 py-0.2 bg-rose-950 border border-rose-500/50 rounded text-[9px]">B</span> Back
+          </span>
         </div>
       )}
     </div>

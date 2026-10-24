@@ -70,20 +70,77 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
     setIsLoading(true);
     try {
       const buffer = await file.arrayBuffer();
-      await onSaveModel({
-        target: selectedTarget,
-        sourceType: 'file',
-        fileName: file.name,
-        fileBuffer: buffer,
-        scale: currentConfig.scale || 1.0,
-        offsetY: currentConfig.offsetY || 0,
-      });
+      const isImage = /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+      if (isImage) {
+        // Automatically save as skin texture if user uploads an image here
+        await onSaveModel({
+          ...currentConfig,
+          skinFileName: file.name,
+          skinBuffer: buffer,
+        });
+      } else {
+        await onSaveModel({
+          ...currentConfig,
+          target: selectedTarget,
+          sourceType: 'file',
+          fileName: file.name,
+          fileBuffer: buffer,
+        });
+      }
       soundManager.playCatchSuccess();
     } catch {
-      alert('Error loading GLB/GLTF file. Ensure it is a valid 3D file.');
+      alert('Error loading 3D file or image.');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Handle Custom Skin Texture (.png, .jpg, .webp) upload
+  const handleSkinUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      await onSaveModel({
+        ...currentConfig,
+        skinFileName: file.name,
+        skinBuffer: buffer,
+      });
+      soundManager.playCatchSuccess();
+    } catch {
+      alert('Error loading skin image. Ensure it is a valid PNG or JPG image.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemoveSkin = async () => {
+    await onSaveModel({
+      ...currentConfig,
+      skinFileName: undefined,
+      skinBuffer: undefined,
+      skinBase64: undefined,
+    });
+    soundManager.playBubble();
+  };
+
+  const handleRotationChange = async (deg: number) => {
+    await onSaveModel({
+      ...currentConfig,
+      rotationY: deg,
+    });
+  };
+
+  const handleToggleFlip = async () => {
+    const cur = currentConfig.rotationY || 0;
+    const next = (cur + 180) % 360;
+    await onSaveModel({
+      ...currentConfig,
+      rotationY: next,
+    });
+    soundManager.playClick();
   };
 
   // Handle URL model load
@@ -92,12 +149,11 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
     setIsLoading(true);
     try {
       await onSaveModel({
+        ...currentConfig,
         target: selectedTarget,
         sourceType: 'url',
         url: urlInput.trim(),
         fileName: urlInput.split('/').pop() || 'model.glb',
-        scale: currentConfig.scale || 1.0,
-        offsetY: currentConfig.offsetY || 0,
       });
       setUrlInput('');
       soundManager.playCatchSuccess();
@@ -208,19 +264,35 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
         {/* Active Creature Management Panel */}
         <div className="overflow-y-auto space-y-4 pr-1 flex-1">
           {/* Status Card */}
-          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
+          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-bold text-sm text-sky-300">
                   {CREATURE_TABS.find((t) => t.id === selectedTarget)?.label}
                 </span>
                 {currentConfig.sourceType !== 'default' ? (
                   <span className="bg-emerald-950 text-emerald-400 border border-emerald-500/40 text-[10px] px-2 py-0.5 rounded-md font-medium">
-                    Custom Model Active: {currentConfig.fileName || 'URL Model'}
+                    3D Model: {currentConfig.fileName || 'URL Model'}
                   </span>
                 ) : (
                   <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded-md font-medium">
-                    Default Procedural Active
+                    Default 3D Mesh
+                  </span>
+                )}
+                {currentConfig.skinFileName ? (
+                  <span className="bg-indigo-950 text-indigo-300 border border-indigo-500/40 text-[10px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1">
+                    <span>🎨 Skin: {currentConfig.skinFileName}</span>
+                    <button
+                      onClick={handleRemoveSkin}
+                      className="hover:text-rose-300 text-slate-400 font-bold ml-1"
+                      title="Remove Custom Skin"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ) : (
+                  <span className="bg-slate-800/80 text-slate-500 text-[10px] px-2 py-0.5 rounded-md">
+                    Standard Skin
                   </span>
                 )}
               </div>
@@ -229,34 +301,43 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
               </p>
             </div>
 
-            {currentConfig.sourceType !== 'default' && (
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => onResetModel(selectedTarget)}
-                className="flex items-center gap-1.5 text-xs text-rose-300 hover:text-rose-200 bg-rose-950/50 hover:bg-rose-950 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                onClick={handleToggleFlip}
+                className="flex items-center gap-1.5 text-xs text-sky-300 hover:text-white bg-sky-950/60 hover:bg-sky-900 border border-sky-500/30 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                title="Flip model facing orientation by 180°"
               >
-                <RotateCcw size={13} />
-                <span>Reset to Default</span>
+                <span>🔄 Flip 180°</span>
               </button>
-            )}
+              {(currentConfig.sourceType !== 'default' || currentConfig.skinFileName) && (
+                <button
+                  onClick={() => onResetModel(selectedTarget)}
+                  className="flex items-center gap-1.5 text-xs text-rose-300 hover:text-rose-200 bg-rose-950/50 hover:bg-rose-950 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                >
+                  <RotateCcw size={13} />
+                  <span>Reset All</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Model Import Options Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* 1. Upload Local File */}
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          {/* Model & Skin Import Options Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 1. Upload Local 3D Model */}
+            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-200 mb-1">
-                  <Upload size={15} className="text-sky-400" />
-                  <span>Upload Local 3D Model</span>
+                  <Upload size={14} className="text-sky-400" />
+                  <span>Custom 3D Model</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Upload your own <code>.glb</code> or <code>.gltf</code> file (e.g. from Sketchfab or Blender). Saved permanently to your browser!
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Upload your <code>.glb</code> or <code>.gltf</code> 3D model file.
                 </p>
               </div>
 
-              <label className="cursor-pointer flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold py-2.5 px-3 rounded-xl text-sky-300 transition-colors">
-                <Upload size={15} />
-                <span>Select .GLB / .GLTF File</span>
+              <label className="cursor-pointer flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold py-2 px-2.5 rounded-xl text-sky-300 transition-colors">
+                <Upload size={14} />
+                <span>Select .GLB</span>
                 <input
                   type="file"
                   accept=".glb,.gltf"
@@ -267,30 +348,54 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
               </label>
             </div>
 
-            {/* 2. Load from Direct URL */}
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+            {/* 2. Upload Custom Skin Texture */}
+            <div className="bg-slate-950/50 border border-indigo-500/30 rounded-xl p-3.5 flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-200 mb-1">
-                  <Link size={15} className="text-sky-400" />
-                  <span>Load from Model URL</span>
+                <div className="flex items-center gap-2 text-xs font-bold text-indigo-300 mb-1">
+                  <span>🎨</span>
+                  <span>Custom Skin Texture</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Paste a direct link to a hosted <code>.glb</code> model file.
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Apply a <code>.png</code> or <code>.jpg</code> texture skin directly onto the whale!
                 </p>
               </div>
 
-              <div className="flex gap-2">
+              <label className="cursor-pointer flex items-center justify-center gap-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-xs font-semibold py-2 px-2.5 rounded-xl text-indigo-200 transition-colors">
+                <span>Upload .PNG Skin</span>
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp"
+                  onChange={handleSkinUpload}
+                  className="hidden"
+                  disabled={isLoading}
+                />
+              </label>
+            </div>
+
+            {/* 3. Load from Direct URL */}
+            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-200 mb-1">
+                  <Link size={14} className="text-sky-400" />
+                  <span>Model URL</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Link to an online <code>.glb</code> file.
+                </p>
+              </div>
+
+              <div className="flex gap-1.5">
                 <input
                   type="url"
-                  placeholder="https://example.com/orca.glb"
+                  placeholder="https://...glb"
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
-                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500"
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500"
                 />
                 <button
                   onClick={handleUrlLoad}
                   disabled={!urlInput.trim() || isLoading}
-                  className="bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-xs px-3 py-1.5 rounded-xl transition-colors"
+                  className="bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-xs px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
                 >
                   Load
                 </button>
@@ -298,14 +403,14 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
             </div>
           </div>
 
-          {/* Model Adjustments (Scale & Offset) */}
-          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
+          {/* Model Adjustments (Scale, Offset & Orientation) */}
+          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-              <Sliders size={15} className="text-sky-400" />
-              <span>Proportions & Alignment</span>
+              <Sliders size={14} className="text-sky-400" />
+              <span>Scale, Height & Orientation Alignment</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <div className="flex justify-between text-xs text-slate-400 mb-1">
                   <span>Model Scale</span>
@@ -338,6 +443,24 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
                   step="0.1"
                   value={currentConfig.offsetY || 0}
                   onChange={(e) => handleOffsetChange(parseFloat(e.target.value))}
+                  className="w-full accent-sky-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Rotation Heading</span>
+                  <span className="font-mono text-sky-400">
+                    {(currentConfig.rotationY || 0)}°
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="15"
+                  value={currentConfig.rotationY || 0}
+                  onChange={(e) => handleRotationChange(parseInt(e.target.value, 10))}
                   className="w-full accent-sky-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
                 />
               </div>

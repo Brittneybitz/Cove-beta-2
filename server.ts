@@ -6,6 +6,14 @@ import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
+// Prevent unhandled rejections or socket disconnects from terminating dev server
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -16,14 +24,17 @@ app.use(express.json());
 
 // Initialize GoogleGenAI server-side with User-Agent header
 const apiKey = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({
-  apiKey: apiKey,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+let ai: GoogleGenAI | null = null;
+if (apiKey) {
+  ai = new GoogleGenAI({
+    apiKey: apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
+  });
+}
 
 // Chat endpoint for Oreo the Whale
 app.post('/api/whale-chat', async (req, res) => {
@@ -32,6 +43,19 @@ app.post('/api/whale-chat', async (req, res) => {
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
+      return;
+    }
+
+    if (!ai) {
+      const inCharacterFallbacks = [
+        "*Whooosh!* The deep current was noisy for a second! But I am right here with you, friend! 🌊🐋✨",
+        "*Click-click-squeee!* I love swimming by your side! Let's do a synchronized leap over the reef! 🐟💦",
+        "*Blows a heart-shaped bubble ring!* 🫧 Look what I made for you! Got any crunchy kelp or fish treats? 🌿🐟",
+        "*Playful tail slap!* Splash! The warm sunbeams feel so wonderful today! ☀️🌊",
+      ];
+      const fallbackReply =
+        inCharacterFallbacks[Math.floor(Math.random() * inCharacterFallbacks.length)];
+      res.json({ reply: fallbackReply });
       return;
     }
 
@@ -53,7 +77,7 @@ app.post('/api/whale-chat', async (req, res) => {
     contents.push({ role: 'user', parts: [{ text: message }] });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents,
       config: {
         systemInstruction:
@@ -98,7 +122,10 @@ if (process.env.NODE_ENV === 'production') {
 } else {
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({
-    server: { middlewareMode: true },
+    server: {
+      middlewareMode: true,
+      hmr: false,
+    },
     appType: 'spa',
   });
   app.use(vite.middlewares);

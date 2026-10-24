@@ -9,13 +9,17 @@ export interface CustomModelConfig {
   fileName?: string;
   fileBuffer?: ArrayBuffer;
   base64Data?: string;
+  skinFileName?: string;
+  skinBuffer?: ArrayBuffer;
+  skinBase64?: string;
   scale: number;
   offsetY: number;
+  rotationY?: number;
   lastUpdated?: number;
 }
 
 const DB_NAME = 'WhaleCoveModelDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'custom_models';
 
 // ArrayBuffer to Base64 helper
@@ -72,9 +76,19 @@ export async function saveCustomModel(config: CustomModelConfig): Promise<void> 
     }
   }
 
+  let skinBase64 = config.skinBase64;
+  if (config.skinBuffer && !skinBase64) {
+    try {
+      skinBase64 = arrayBufferToBase64(config.skinBuffer);
+    } catch {
+      // ignore
+    }
+  }
+
   const modelRecord: CustomModelConfig = {
     ...config,
     base64Data: base64,
+    skinBase64: skinBase64,
     lastUpdated: Date.now(),
   };
 
@@ -99,11 +113,13 @@ export async function saveCustomModel(config: CustomModelConfig): Promise<void> 
       sourceType: config.sourceType,
       url: config.url,
       fileName: config.fileName,
+      skinFileName: config.skinFileName,
       scale: config.scale,
       offsetY: config.offsetY,
+      rotationY: config.rotationY || 0,
       lastUpdated: Date.now(),
-      // Store base64 in localStorage if under 4MB
-      base64Data: base64 && base64.length < 3500000 ? base64 : undefined,
+      base64Data: base64 && base64.length < 2500000 ? base64 : undefined,
+      skinBase64: skinBase64 && skinBase64.length < 2500000 ? skinBase64 : undefined,
     };
     localStorage.setItem('whale_cove_models_meta', JSON.stringify(meta));
   } catch {
@@ -126,6 +142,9 @@ export async function getCustomModel(target: ModelTarget): Promise<CustomModelCo
       if (!result.fileBuffer && result.base64Data) {
         result.fileBuffer = base64ToArrayBuffer(result.base64Data);
       }
+      if (!result.skinBuffer && result.skinBase64) {
+        result.skinBuffer = base64ToArrayBuffer(result.skinBase64);
+      }
       return result;
     }
   } catch {
@@ -138,6 +157,9 @@ export async function getCustomModel(target: ModelTarget): Promise<CustomModelCo
     if (item) {
       if (item.base64Data) {
         item.fileBuffer = base64ToArrayBuffer(item.base64Data);
+      }
+      if (item.skinBase64) {
+        item.skinBuffer = base64ToArrayBuffer(item.skinBase64);
       }
       return item;
     }
@@ -164,6 +186,9 @@ export async function getAllCustomModels(): Promise<Record<ModelTarget, CustomMo
           if (!item.fileBuffer && item.base64Data) {
             item.fileBuffer = base64ToArrayBuffer(item.base64Data);
           }
+          if (!item.skinBuffer && item.skinBase64) {
+            item.skinBuffer = base64ToArrayBuffer(item.skinBase64);
+          }
           result[item.target] = item;
         });
         resolve();
@@ -183,6 +208,9 @@ export async function getAllCustomModels(): Promise<Record<ModelTarget, CustomMo
         const item = meta[t];
         if (item.base64Data && !item.fileBuffer) {
           item.fileBuffer = base64ToArrayBuffer(item.base64Data);
+        }
+        if (item.skinBase64 && !item.skinBuffer) {
+          item.skinBuffer = base64ToArrayBuffer(item.skinBase64);
         }
         result[t] = item;
       }
@@ -226,8 +254,11 @@ export interface ModelExportPreset {
         url?: string;
         fileName?: string;
         base64Data?: string;
+        skinFileName?: string;
+        skinBase64?: string;
         scale: number;
         offsetY: number;
+        rotationY?: number;
       }
     >
   >;
@@ -235,19 +266,22 @@ export interface ModelExportPreset {
 
 export function exportConfigToJSON(models: Record<ModelTarget, CustomModelConfig>): string {
   const exportData: ModelExportPreset = {
-    version: 2,
+    version: 3,
     models: {},
   };
 
   (Object.keys(models) as ModelTarget[]).forEach((key) => {
     const m = models[key];
-    if (m && m.sourceType !== 'default') {
+    if (m && (m.sourceType !== 'default' || m.skinBase64 || m.skinFileName)) {
       exportData.models[key] = {
         url: m.url,
         fileName: m.fileName,
         base64Data: m.base64Data,
+        skinFileName: m.skinFileName,
+        skinBase64: m.skinBase64,
         scale: m.scale,
         offsetY: m.offsetY,
+        rotationY: m.rotationY || 0,
       };
     }
   });

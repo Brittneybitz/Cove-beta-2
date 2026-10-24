@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { CustomModelConfig, ModelTarget } from '../services/customModelStorage';
 import { createNameplate, CreatureRig } from './models';
 import { CreatureType } from '../types/game';
@@ -11,53 +12,73 @@ export interface LoadedCustomRig extends CreatureRig {
   isCustomModel: boolean;
 }
 
-export function sanitizeAndFixModelMaterials(root: THREE.Object3D) {
+export function sanitizeAndFixModelMaterials(root: THREE.Object3D, customSkinTexture?: THREE.Texture | null) {
   root.traverse((child) => {
+    // Ensure all meshes are visible and never frustum-culled
+    child.visible = true;
+    child.frustumCulled = false;
+
     if ((child as THREE.Mesh).isMesh) {
       const mesh = child as THREE.Mesh;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
 
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      materials.forEach((mat) => {
-        if (!mat) return;
-        mat.side = THREE.DoubleSide;
-        mat.needsUpdate = true;
-
-        if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
-          if (mat.map) {
-            mat.map.colorSpace = THREE.SRGBColorSpace;
-            mat.map.needsUpdate = true;
-          }
-          if (mat.emissiveMap) {
-            mat.emissiveMap.colorSpace = THREE.SRGBColorSpace;
-            mat.emissiveMap.needsUpdate = true;
-          }
-          if (mat.normalMap) {
-            mat.normalMap.needsUpdate = true;
-          }
-          if (mat.roughnessMap) {
-            mat.roughnessMap.needsUpdate = true;
-          }
-          if (mat.metalnessMap) {
-            mat.metalnessMap.needsUpdate = true;
-          }
-
-          // Prevent pitch-black unlit textures
-          if (mat.metalness > 0.85 && !mat.metalnessMap) {
-            mat.metalness = 0.3;
-          }
-          if (mat.color && mat.color.getHex() === 0x000000 && !mat.map) {
-            mat.color.setHex(0x38bdf8);
-          }
-        } else if (mat instanceof THREE.MeshBasicMaterial) {
-          if (mat.map) {
-            mat.map.colorSpace = THREE.SRGBColorSpace;
-            mat.map.needsUpdate = true;
-          }
-        }
-      });
+      // Only apply custom skin texture if explicitly provided by the user
+      if (customSkinTexture) {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((mat) => {
+          if (!mat) return;
+          (mat as any).map = customSkinTexture;
+          customSkinTexture.colorSpace = THREE.SRGBColorSpace;
+          customSkinTexture.needsUpdate = true;
+          mat.needsUpdate = true;
+        });
+      }
     }
+  });
+}
+
+export function loadTextureFromBuffer(buffer: ArrayBuffer, mimeType: string = 'image/png'): Promise<THREE.Texture> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([buffer], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.needsUpdate = true;
+        URL.revokeObjectURL(url);
+        resolve(texture);
+      },
+      undefined,
+      (err) => {
+        URL.revokeObjectURL(url);
+        reject(err);
+      }
+    );
+  });
+}
+
+export function loadTextureFromBase64(base64: string): Promise<THREE.Texture> {
+  return new Promise((resolve, reject) => {
+    const dataUrl = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      dataUrl,
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.needsUpdate = true;
+        resolve(texture);
+      },
+      undefined,
+      (err) => reject(err)
+    );
   });
 }
 
@@ -98,12 +119,18 @@ export function buildRigFromCustomModel(
   target: ModelTarget,
   config: CustomModelConfig,
   displayName: string,
-  badgeText: string
+  badgeText: string,
+  customSkinTexture?: THREE.Texture | null
 ): LoadedCustomRig {
   const root = new THREE.Group();
 
-  // Clone or adapt scene
-  const cloned = modelScene.clone(true);
+  // Clone scene using SkeletonUtils.clone to properly deep-clone SkinnedMeshes & bones!
+  // Normal Object3D.clone(true) leaves SkinnedMeshes bound to the original skeleton,
+  // causing all instances to render frozen on top of each other at origin (0, 0, 0).
+  const cloned = SkeletonUtils.clone(modelScene) as THREE.Group;
+
+  // Apply materials sanitization and optional skin texture to cloned instance
+  sanitizeAndFixModelMaterials(cloned, customSkinTexture);
 
   // Measure bounding box to normalize scale
   const bbox = new THREE.Box3().setFromObject(cloned);
@@ -125,14 +152,25 @@ export function buildRigFromCustomModel(
   const baseScale = targetDim / maxAxis;
   const finalScale = baseScale * (config.scale || 1.0);
 
+  // Group wrapper to handle rotation orientation (e.g. 180 flip if model was authored backwards)
+  const modelWrapper = new THREE.Group();
+  modelWrapper.add(cloned);
+
   cloned.scale.setScalar(finalScale);
 
-  // Re-center geometry
+  // Re-center geometry within wrapper
   cloned.position.x = -center.x * finalScale;
   cloned.position.y = -center.y * finalScale + (config.offsetY || 0);
   cloned.position.z = -center.z * finalScale;
 
-  root.add(cloned);
+  let currentRotYDeg = config.rotationY || 0;
+
+  // Apply manual rotation offset if specified (e.g. 180 degrees)
+  if (currentRotYDeg) {
+    modelWrapper.rotation.y = (currentRotYDeg * Math.PI) / 180;
+  }
+
+  root.add(modelWrapper);
 
   // Add Nameplate
   const nameSprite = createNameplate(displayName, badgeText);
@@ -144,15 +182,20 @@ export function buildRigFromCustomModel(
 
   return {
     root,
+    modelWrapper,
+    innerMesh: cloned,
     nameSprite,
     creatureType,
     isCustomModel: true,
+    setRotationYOffset: (deg: number) => {
+      currentRotYDeg = deg;
+      modelWrapper.rotation.y = (deg * Math.PI) / 180;
+    },
     updateAnimation: (time: number, speedMultiplier: number) => {
       const freq = time * 4.5 * speedMultiplier;
-      // Gentle natural undulating yaw & pitch
-      cloned.rotation.y = Math.sin(freq) * 0.12;
-      cloned.rotation.z = Math.sin(freq * 0.5) * 0.06;
-      root.position.y = Math.sin(freq * 0.8) * 0.25;
+      // Gentle natural undulating yaw, pitch & sway inside the modelWrapper
+      modelWrapper.rotation.z = Math.sin(freq * 0.5) * 0.06;
+      modelWrapper.position.y = Math.sin(freq * 0.8) * 0.25;
     },
   };
 }

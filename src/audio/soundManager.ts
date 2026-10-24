@@ -1,4 +1,5 @@
-// src/audio/soundManager.ts
+import { playCustomCryIfAvailable, CryEmotion } from '../services/customCryStorage';
+
 class SoundManager {
   private ctx: AudioContext | null = null;
   private muted: boolean = false;
@@ -44,6 +45,7 @@ class SoundManager {
     this.ambientGain.gain.linearRampToValueAtTime(this.muted ? 0 : 0.12, this.ctx.currentTime + 3.0);
     this.ambientGain.connect(this.ctx.destination);
 
+    // Warm chord pads: D minor 9 (D3, F3, A3, C4, E4)
     const padNotes = [146.83, 174.61, 220.0, 261.63, 329.63];
     padNotes.forEach((freq, idx) => {
       if (!this.ctx || !this.ambientGain) return;
@@ -57,6 +59,7 @@ class SoundManager {
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(320 + idx * 80, this.ctx.currentTime);
 
+      // Low subtle volume per voice
       oscGain.gain.setValueAtTime(0.04, this.ctx.currentTime);
 
       osc.connect(filter);
@@ -67,6 +70,7 @@ class SoundManager {
       this.ambientOscs.push(osc);
     });
 
+    // Gentle filtered ocean wave wash generator
     const bufferSize = this.ctx.sampleRate * 4;
     const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
@@ -82,8 +86,9 @@ class SoundManager {
     waveFilter.type = 'lowpass';
     waveFilter.frequency.setValueAtTime(180, this.ctx.currentTime);
 
+    // LFO to swell the ocean waves slowly
     const lfo = this.ctx.createOscillator();
-    lfo.frequency.setValueAtTime(0.12, this.ctx.currentTime);
+    lfo.frequency.setValueAtTime(0.12, this.ctx.currentTime); // one swell every ~8 seconds
     const lfoGain = this.ctx.createGain();
     lfoGain.gain.setValueAtTime(120, this.ctx.currentTime);
     lfo.connect(waveFilter.frequency);
@@ -128,11 +133,13 @@ class SoundManager {
     }
   }
 
+  // Authentic Pokémon-style victory fanfare
   public playPokemonVictoryFanfare() {
     if (this.muted) return;
     this.initCtx();
     if (!this.ctx) return;
 
+    // Classic Pokémon victory fanfare: C5, C5, C5, C5, G#4, A#4, C5 (hold), then G4, A#4, C5
     const notes = [
       { f: 523.25, d: 0.12, t: 0 },
       { f: 523.25, d: 0.12, t: 0.14 },
@@ -174,6 +181,7 @@ class SoundManager {
     });
   }
 
+  // Sparkling level-up fanfare
   public playLevelUpFanfare() {
     if (this.muted) return;
     this.initCtx();
@@ -207,11 +215,13 @@ class SoundManager {
     });
   }
 
+  // Resonant, mystical Sea Flute catch tune
   public playFluteCatchChime() {
     if (this.muted) return;
     this.initCtx();
     if (!this.ctx) return;
 
+    // Oceanic pentatonic flute flourish: D5, F#5, A5, B5, D6, with fluttering vibrato
     const notes = [587.33, 739.99, 880.0, 987.77, 1174.66];
     const now = this.ctx.currentTime;
 
@@ -226,6 +236,7 @@ class SoundManager {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, t);
 
+      // Breath vibrato
       vibrato.frequency.setValueAtTime(6.5, t);
       vibGain.gain.setValueAtTime(6, t);
       vibrato.connect(osc.frequency);
@@ -298,6 +309,7 @@ class SoundManager {
     this.initCtx();
     if (!this.ctx) return;
 
+    // Filtered noise burst
     const now = this.ctx.currentTime;
     const bufferSize = this.ctx.sampleRate * 0.25;
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
@@ -327,6 +339,10 @@ class SoundManager {
     noise.stop(now + 0.26);
   }
 
+  public playWaterSplash() {
+    this.playSplash();
+  }
+
   public playAttackCrash() {
     if (this.muted) return;
     this.initCtx();
@@ -350,17 +366,320 @@ class SoundManager {
     osc.stop(now + 0.4);
   }
 
+  public playFluteMelody() {
+    if (this.muted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    // Peaceful oceanic woodwind melody: C5 - E5 - G5 - A5 - C6
+    const notes = [523.25, 659.25, 783.99, 880.0, 1046.5];
+    const now = this.ctx.currentTime;
+
+    notes.forEach((freq, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + idx * 0.14;
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+
+      // gentle breath vibrato
+      gain.gain.setValueAtTime(0.01, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.24);
+    });
+  }
+
+  public playCatchSuccess() {
+    if (this.muted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const notes = [440, 554.37, 659.25, 880, 1108.73, 1318.51];
+    const now = this.ctx.currentTime;
+
+    notes.forEach((freq, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + idx * 0.08;
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.32);
+    });
+  }
+
+  public playFeed() {
+    if (this.muted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(580, now + 0.18);
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.22);
+  }
+
   public playWhaleChirp() {
-    const ai = (window as any).whaleAIInstance;
-    if (ai && ai.initialized) {
-      ai.triggerEmotion('respond');
-    }
+    if (this.muted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    // Sweet FM frequency modulated whale vocalization
+    const now = this.ctx.currentTime;
+    const carrier = this.ctx.createOscillator();
+    const modulator = this.ctx.createOscillator();
+    const modGain = this.ctx.createGain();
+    const masterGain = this.ctx.createGain();
+
+    carrier.type = 'sine';
+    modulator.type = 'sine';
+
+    modulator.frequency.setValueAtTime(14, now);
+    modGain.gain.setValueAtTime(80, now);
+    modulator.connect(carrier.frequency);
+
+    carrier.frequency.setValueAtTime(540, now);
+    carrier.frequency.exponentialRampToValueAtTime(780, now + 0.18);
+    carrier.frequency.exponentialRampToValueAtTime(420, now + 0.35);
+
+    masterGain.gain.setValueAtTime(0.01, now);
+    masterGain.gain.linearRampToValueAtTime(0.18, now + 0.05);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+    carrier.connect(masterGain);
+    masterGain.connect(this.ctx.destination);
+
+    modulator.start(now);
+    carrier.start(now);
+    modulator.stop(now + 0.4);
+    carrier.stop(now + 0.4);
   }
 
   public playHappyWhaleCry() {
-    const ai = (window as any).whaleAIInstance;
-    if (ai && ai.initialized) {
-      ai.triggerEmotion('respond');
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('happy')) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    // Joyful, multi-tone playful whale greeting song (chirp + trill)
+    const now = this.ctx.currentTime;
+
+    const carrier = this.ctx.createOscillator();
+    const modulator = this.ctx.createOscillator();
+    const modGain = this.ctx.createGain();
+    const gain = this.ctx.createGain();
+
+    carrier.type = 'sine';
+    modulator.type = 'sine';
+
+    modulator.frequency.setValueAtTime(18, now);
+    modGain.gain.setValueAtTime(95, now);
+    modulator.connect(carrier.frequency);
+
+    // Playful ascending melody curves: low chirp -> high joyous whistle -> warm resolution
+    carrier.frequency.setValueAtTime(480, now);
+    carrier.frequency.exponentialRampToValueAtTime(1180, now + 0.22);
+    carrier.frequency.exponentialRampToValueAtTime(840, now + 0.38);
+    carrier.frequency.exponentialRampToValueAtTime(1420, now + 0.58);
+    carrier.frequency.exponentialRampToValueAtTime(720, now + 0.78);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.24, now + 0.08);
+    gain.gain.setValueAtTime(0.22, now + 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+
+    carrier.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    modulator.start(now);
+    carrier.start(now);
+    modulator.stop(now + 0.85);
+    carrier.stop(now + 0.85);
+
+    const shimmer = this.ctx.createOscillator();
+    const sGain = this.ctx.createGain();
+    shimmer.type = 'triangle';
+    shimmer.frequency.setValueAtTime(960, now + 0.15);
+    shimmer.frequency.exponentialRampToValueAtTime(1650, now + 0.45);
+    sGain.gain.setValueAtTime(0.01, now + 0.15);
+    sGain.gain.linearRampToValueAtTime(0.12, now + 0.25);
+    sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+
+    shimmer.connect(sGain);
+    sGain.connect(this.ctx.destination);
+
+    shimmer.start(now + 0.15);
+    shimmer.stop(now + 0.72);
+  }
+
+  public playCuteCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('cute')) return;
+    this.playWhaleChirp();
+  }
+
+  public playFightingCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('fighting')) return;
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Resonant underwater battle bellow
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.exponentialRampToValueAtTime(280, now + 0.15);
+    osc.frequency.exponentialRampToValueAtTime(90, now + 0.5);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.56);
+    this.playAttackCrash();
+  }
+
+  public playVictoryCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('victory')) return;
+    this.playCatchSuccess();
+  }
+
+  public playAngryCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('angry')) return;
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Menacing low whale growl and warning click burst
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(110, now);
+    osc.frequency.linearRampToValueAtTime(75, now + 0.6);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(320, now);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.68);
+  }
+
+  public playSadCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('sad')) return;
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Slow melancholic descending whale song
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(540, now);
+    osc.frequency.exponentialRampToValueAtTime(320, now + 0.35);
+    osc.frequency.exponentialRampToValueAtTime(190, now + 0.85);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.96);
+  }
+
+  public playKOCry() {
+    if (this.muted) return;
+    if (playCustomCryIfAvailable('ko')) return;
+    this.initCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Pitch flutter dropping to near zero
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(380, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.7);
+
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.76);
+  }
+
+  public playEmotionCry(emotion: CryEmotion) {
+    switch (emotion) {
+      case 'happy':
+        this.playHappyWhaleCry();
+        break;
+      case 'cute':
+        this.playCuteCry();
+        break;
+      case 'fighting':
+        this.playFightingCry();
+        break;
+      case 'victory':
+        this.playVictoryCry();
+        break;
+      case 'angry':
+        this.playAngryCry();
+        break;
+      case 'sad':
+        this.playSadCry();
+        break;
+      case 'ko':
+        this.playKOCry();
+        break;
     }
   }
 
@@ -386,20 +705,16 @@ class SoundManager {
   }
 
   public playAttackSplash() {
+    this.playFightingCry();
     this.playSplash();
   }
 
   public playOreoClick() {
-    this.playWhaleChirp();
+    this.playCuteCry();
   }
 
   public playWildEncounterAlert() {
-    const ai = (window as any).whaleAIInstance;
-    if (ai && ai.initialized) {
-      ai.triggerEmotion('battle');
-    } else {
-      this.playAttackCrash();
-    }
+    this.playAttackCrash();
   }
 }
 

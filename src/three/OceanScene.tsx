@@ -18,10 +18,14 @@ import {
   buildRigFromCustomModel,
   loadGLTFUrl,
   parseGLTFBuffer,
+  loadTextureFromBuffer,
+  loadTextureFromBase64,
 } from './customModelLoader';
 import { CustomModelConfig, ModelTarget } from '../services/customModelStorage';
 import { CameraViewMode, WildCreatureData, TimeOfDay, ShellHouse, RarityTier, PersonalityType, BattleState, ControlScheme } from '../types/game';
 import { soundManager } from '../audio/soundManager';
+import { gamepadService } from '../services/gamepadService';
+import sandFloorTextureUrl from '../assets/images/ocean_sand_floor_1792785960422.jpg';
 
 interface OceanSceneProps {
   swimSpeed: number;
@@ -42,6 +46,11 @@ interface OceanSceneProps {
   mobileMoveVector?: { x: number; y: number; z: number };
   summonTrigger?: number;
   feedHeartTrigger?: number;
+  isNintendogsMode?: boolean;
+  onExitNintendogsMode?: () => void;
+  onPetOreo?: () => void;
+  showNameplates?: boolean;
+  onPlayerBattleScreenPosChange?: (pos: { x: number; y: number } | null) => void;
 }
 
 export const OceanScene: React.FC<OceanSceneProps> = ({
@@ -63,9 +72,16 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
   mobileMoveVector = { x: 0, y: 0, z: 0 },
   summonTrigger = 0,
   feedHeartTrigger = 0,
+  isNintendogsMode = false,
+  onExitNintendogsMode,
+  onPetOreo,
+  showNameplates = true,
+  onPlayerBattleScreenPosChange,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const parsedSceneCache = useRef<Record<string, THREE.Group>>({});
+  const parsedTextureCache = useRef<Record<string, THREE.Texture>>({});
+  const prevConfigSignatures = useRef<Record<string, string>>({});
 
   const propsRef = useRef({
     swimSpeed,
@@ -85,6 +101,11 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     mobileMoveVector,
     summonTrigger,
     feedHeartTrigger,
+    isNintendogsMode,
+    onExitNintendogsMode,
+    onPetOreo,
+    showNameplates,
+    onPlayerBattleScreenPosChange,
   });
 
   useEffect(() => {
@@ -106,6 +127,11 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
       mobileMoveVector,
       summonTrigger,
       feedHeartTrigger,
+      isNintendogsMode,
+      onExitNintendogsMode,
+      onPetOreo,
+      showNameplates,
+      onPlayerBattleScreenPosChange,
     };
   }, [
     swimSpeed,
@@ -125,6 +151,11 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     mobileMoveVector,
     summonTrigger,
     feedHeartTrigger,
+    isNintendogsMode,
+    onExitNintendogsMode,
+    onPetOreo,
+    showNameplates,
+    onPlayerBattleScreenPosChange,
   ]);
 
   const sceneActionsRef = useRef<{
@@ -133,7 +164,7 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     syncHouses: () => void;
   } | null>(null);
 
-  // Parse and cache any newly updated custom models
+  // Parse and cache any newly updated custom models and skin textures
   useEffect(() => {
     let cancelled = false;
 
@@ -143,7 +174,32 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
 
       for (const target of targets) {
         const config = customModels[target];
-        if (!config || config.sourceType === 'default') {
+        if (!config) continue;
+
+        // 1. Process custom skin textures if provided
+        try {
+          if (config.skinBuffer) {
+            const texture = await loadTextureFromBuffer(config.skinBuffer);
+            if (!cancelled) {
+              parsedTextureCache.current[target] = texture;
+              changed = true;
+            }
+          } else if (config.skinBase64) {
+            const texture = await loadTextureFromBase64(config.skinBase64);
+            if (!cancelled) {
+              parsedTextureCache.current[target] = texture;
+              changed = true;
+            }
+          } else if (!config.skinFileName && parsedTextureCache.current[target]) {
+            delete parsedTextureCache.current[target];
+            changed = true;
+          }
+        } catch {
+          // texture loading error fallback
+        }
+
+        // 2. Process custom 3D models
+        if (config.sourceType === 'default') {
           if (parsedSceneCache.current[target]) {
             delete parsedSceneCache.current[target];
             changed = true;
@@ -153,21 +209,50 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
 
         try {
           if (config.sourceType === 'file' && config.fileBuffer) {
-            const scene = await parseGLTFBuffer(config.fileBuffer);
-            if (!cancelled) {
-              parsedSceneCache.current[target] = scene;
-              changed = true;
+            // Check if file is actually an image skin uploaded into model slot
+            const isImage = config.fileName && /\.(png|jpe?g|webp|gif)$/i.test(config.fileName);
+            if (isImage) {
+              const texture = await loadTextureFromBuffer(config.fileBuffer);
+              if (!cancelled) {
+                parsedTextureCache.current[target] = texture;
+                changed = true;
+              }
+            } else {
+              const scene = await parseGLTFBuffer(config.fileBuffer);
+              if (!cancelled) {
+                parsedSceneCache.current[target] = scene;
+                changed = true;
+              }
             }
           } else if (config.sourceType === 'url' && config.url) {
-            const scene = await loadGLTFUrl(config.url);
-            if (!cancelled) {
-              parsedSceneCache.current[target] = scene;
-              changed = true;
+            if (/\.(png|jpe?g|webp)$/i.test(config.url)) {
+              const loader = new THREE.TextureLoader();
+              const texture = await new Promise<THREE.Texture>((res, rej) => {
+                loader.load(config.url!, (t) => res(t), undefined, rej);
+              });
+              texture.colorSpace = THREE.SRGBColorSpace;
+              if (!cancelled) {
+                parsedTextureCache.current[target] = texture;
+                changed = true;
+              }
+            } else {
+              const scene = await loadGLTFUrl(config.url);
+              if (!cancelled) {
+                parsedSceneCache.current[target] = scene;
+                changed = true;
+              }
             }
           }
         } catch {
           // Fallback if parsing fails
         }
+        // Check if transform configs (scale, offsetY, rotationY) changed
+        const prevSig = prevConfigSignatures.current[target];
+        const curSig = `${config.sourceType}-${config.scale}-${config.offsetY}-${config.rotationY}-${config.skinFileName || ''}`;
+        if (prevSig !== undefined && prevSig !== curSig) {
+          changed = true;
+        }
+        prevConfigSignatures.current[target] = curSig;
       }
 
       if (changed && sceneActionsRef.current && !cancelled) {
@@ -270,26 +355,52 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     }
     scene.add(sunLight);
 
+    // Dedicated camera headlight, studio spotlight & fill light: ensures models and skins are always vibrantly illuminated
+    const cameraHeadlight = new THREE.PointLight(0xffffff, 3.5, 35);
+    cameraHeadlight.position.set(0, 0.4, -0.6); // in front of lens, pointing into scene
+    camera.add(cameraHeadlight);
+
+    const cameraSpotLight = new THREE.SpotLight(0xf0fdf4, 4.0, 30, Math.PI / 2.8, 0.4, 1.2);
+    cameraSpotLight.position.set(0, 0.8, -0.2);
+    cameraSpotLight.target.position.set(0, 0, -4.5);
+    camera.add(cameraSpotLight);
+    camera.add(cameraSpotLight.target);
+
+    const cameraFillLight = new THREE.PointLight(0xffffff, 2.0, 25);
+    cameraFillLight.position.set(0, -0.6, -0.6); // fill light from bottom front
+    camera.add(cameraFillLight);
+    scene.add(camera);
+
     // Rave party strobe light
     const strobeLight = new THREE.PointLight(0xff00ff, 0, 45);
     strobeLight.position.set(0, 6, 0);
     scene.add(strobeLight);
 
-    // 3. Sandy Seabed & Coral Cove Environment
-    const floorGeo = new THREE.PlaneGeometry(130, 130, 32, 32);
+    // 3. Sandy Seabed & Coral Cove Environment with Realistic Ripple Sand Texture
+    const floorGeo = new THREE.PlaneGeometry(140, 140, 48, 48);
     const pos = floorGeo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const vx = pos.getX(i);
       const vy = pos.getY(i);
-      const wave = Math.sin(vx * 0.1) * Math.cos(vy * 0.1) * 0.7;
+      const wave = Math.sin(vx * 0.12) * Math.cos(vy * 0.12) * 0.75 + Math.sin(vx * 0.05) * 0.35;
       pos.setZ(i, wave);
     }
     floorGeo.computeVertexNormals();
 
+    const sandLoader = new THREE.TextureLoader();
+    const sandTexture = sandLoader.load(sandFloorTextureUrl);
+    sandTexture.wrapS = THREE.RepeatWrapping;
+    sandTexture.wrapT = THREE.RepeatWrapping;
+    sandTexture.repeat.set(10, 10);
+    sandTexture.colorSpace = THREE.SRGBColorSpace;
+
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x1d3e42,
-      roughness: 0.85,
-      metalness: 0.1,
+      map: sandTexture,
+      bumpMap: sandTexture,
+      bumpScale: 0.22,
+      roughness: 0.82,
+      metalness: 0.05,
+      color: 0xffffff,
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI / 2;
@@ -486,10 +597,15 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
 
     const heartSprite = createHeartSprite();
 
+    // Companion soft ocean fill light (neutral pure white so black materials remain true black)
+    const companionFillLight = new THREE.PointLight(0xffffff, 1.2, 14);
+    companionFillLight.position.set(0, 1.4, 2.0);
+
     // 10. Companion Rig
     const createCompanionRigHelper = (type: string): CreatureRig => {
       const customConfig = propsRef.current.customModels[type as ModelTarget];
       const cachedScene = parsedSceneCache.current[type];
+      const cachedTexture = parsedTextureCache.current[type];
 
       if (customConfig && customConfig.sourceType !== 'default' && cachedScene) {
         const displayName = type === 'orca' ? 'Oreo 🌟' : `Oreo (${type} Form)`;
@@ -498,29 +614,35 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
           type as ModelTarget,
           customConfig,
           displayName,
-          'Custom Companion'
+          'Custom Companion',
+          cachedTexture
         );
       }
 
-      if (type === 'dolphin') return createDolphinRig('Oreo (Dolphin Form)');
-      if (type === 'shark') return createSharkRig('shark', 'Oreo (Shark Form)');
-      if (type === 'hammerhead') return createSharkRig('hammerhead', 'Oreo (Hammerhead Form)');
-      if (type === 'manta') return createMantaRig('Oreo (Manta Form)');
-      return createOrcaRig();
+      const rotY = customConfig?.rotationY || 0;
+
+      if (type === 'dolphin') return createDolphinRig('Oreo (Dolphin Form)', cachedTexture);
+      if (type === 'shark') return createSharkRig('shark', 'Oreo (Shark Form)', cachedTexture);
+      if (type === 'hammerhead') return createSharkRig('hammerhead', 'Oreo (Hammerhead Form)', cachedTexture);
+      if (type === 'manta') return createMantaRig('Oreo (Manta Form)', cachedTexture);
+      return createOrcaRig('Oreo 🌟', cachedTexture, rotY);
     };
 
     let companionRig: CreatureRig = createCompanionRigHelper(propsRef.current.companionType);
     scene.add(companionRig.root);
     companionRig.root.userData = { isOreo: true };
     companionRig.root.add(heartSprite);
+    companionRig.root.add(companionFillLight);
 
     const updateCompanionRig = (type: string) => {
       companionRig.root.remove(heartSprite);
+      companionRig.root.remove(companionFillLight);
       scene.remove(companionRig.root);
       companionRig = createCompanionRigHelper(type);
       scene.add(companionRig.root);
       companionRig.root.userData = { isOreo: true };
       companionRig.root.add(heartSprite);
+      companionRig.root.add(companionFillLight);
     };
 
     // 11. Wild Creatures System
@@ -585,6 +707,7 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     const createWildRigHelper = (type: ModelTarget, name: string): CreatureRig => {
       const customConfig = propsRef.current.customModels[type];
       const cachedScene = parsedSceneCache.current[type];
+      const cachedTexture = parsedTextureCache.current[type];
 
       if (customConfig && customConfig.sourceType !== 'default' && cachedScene) {
         return buildRigFromCustomModel(
@@ -592,7 +715,8 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
           type,
           customConfig,
           name,
-          'Custom Wild Creature'
+          'Custom Wild Creature',
+          cachedTexture
         );
       }
 
@@ -820,8 +944,18 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     let lastMouseX = 0;
     let lastMouseY = 0;
     let camYaw = 0;
-    let camPitch = 0.15;
-    const companionSwimPos = new THREE.Vector3(0, 0, 0);
+    let camPitch = 0.08;
+    const playerSwimPos = new THREE.Vector3(0, 3.2, 16);
+    const companionSwimPos = new THREE.Vector3(0, 2.0, 8);
+    const normMousePos = { x: 0, y: 0 };
+    let lastPetTime = 0;
+
+    // Gamepad action listener for camera reset
+    const unsubGamepadActions = gamepadService.onAction((action) => {
+      if (action === 'resetCamera') {
+        camPitch = 0.08;
+      }
+    });
 
     // Whistle summon and heart emote animation state
     let summonUntil = 0;
@@ -835,9 +969,15 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     let lastTouchLookX = 0;
     let lastTouchLookY = 0;
 
+    const updateNormMouse = (clientX: number, clientY: number) => {
+      normMousePos.x = (clientX / window.innerWidth) * 2 - 1;
+      normMousePos.y = -(clientY / window.innerHeight) * 2 + 1;
+    };
+
     const handleTouchStart = (e: TouchEvent) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
+        updateNormMouse(t.clientX, t.clientY);
         if (t.clientX > window.innerWidth * 0.38 && touchLookId === null) {
           touchLookId = t.identifier;
           lastTouchLookX = t.clientX;
@@ -849,6 +989,20 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
     const handleTouchMove = (e: TouchEvent) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
+        updateNormMouse(t.clientX, t.clientY);
+
+        // Petting detection in Nintendogs mode
+        if (propsRef.current.isNintendogsMode || performance.now() < summonUntil * 1000) {
+          const now = performance.now();
+          if (now - lastPetTime > 900) {
+            lastPetTime = now;
+            propsRef.current.onPetOreo?.();
+            soundManager.playCuteCry();
+            heartAnimStart = clock.getElapsedTime();
+            heartAnimUntil = heartAnimStart + 3.0;
+          }
+        }
+
         if (t.identifier === touchLookId) {
           const dx = t.clientX - lastTouchLookX;
           const dy = t.clientY - lastTouchLookY;
@@ -874,11 +1028,26 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
         isMouseDown = true;
         lastMouseX = e.clientX;
         lastMouseY = e.clientY;
+        updateNormMouse(e.clientX, e.clientY);
       }
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (isMouseDown && propsRef.current.controlScheme === 'minecraft' && !propsRef.current.battleState?.active) {
+      updateNormMouse(e.clientX, e.clientY);
+
+      // Petting detection on mouse drag in Nintendogs mode
+      if (isMouseDown && (propsRef.current.isNintendogsMode || performance.now() < summonUntil * 1000)) {
+        const now = performance.now();
+        if (now - lastPetTime > 850) {
+          lastPetTime = now;
+          propsRef.current.onPetOreo?.();
+          soundManager.playCuteCry();
+          heartAnimStart = clock.getElapsedTime();
+          heartAnimUntil = heartAnimStart + 3.0;
+        }
+      }
+
+      if (isMouseDown && propsRef.current.controlScheme === 'minecraft' && !propsRef.current.battleState?.active && !propsRef.current.isNintendogsMode) {
         const dx = e.clientX - lastMouseX;
         const dy = e.clientY - lastMouseY;
         lastMouseX = e.clientX;
@@ -1008,14 +1177,70 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
           shieldMesh.visible = false;
         }
 
-        // Position companion & opponent
+        // Position companion & opponent in Pokémon duel arena
         companionRig.root.position.copy(pPos);
-        companionRig.root.rotation.y = Math.atan2(oBase.x - pBase.x, oBase.z - pBase.z);
-        companionRig.updateAnimation(time, 0.8);
-
         activeBattleRig.root.position.copy(oPos);
-        activeBattleRig.root.rotation.y = Math.atan2(pBase.x - oBase.x, pBase.z - oBase.z);
+
+        // Update swimming/idle animations first so they cannot overwrite orientation
+        companionRig.updateAnimation(time, 0.8);
         activeBattleRig.updateAnimation(time, 0.8);
+
+        // 1. Orient companion so its face points directly at the opponent
+        if (companionRig.isCustomModel || companionRig.innerMesh) {
+          // Custom GLB model: lookAt target in 3D, and align inner mesh with face rotation offset
+          companionRig.root.lookAt(oPos);
+          const companionConfig = propsRef.current.customModels[propsRef.current.companionType as ModelTarget];
+          const rotOffset = companionConfig?.rotationY !== undefined && companionConfig.rotationY !== 0
+            ? (companionConfig.rotationY * Math.PI) / 180
+            : Math.PI / 2;
+          if (companionRig.innerMesh) {
+            companionRig.innerMesh.rotation.y = rotOffset;
+          }
+        } else {
+          // Procedural rig (Orca, Shark, Hammerhead, Dolphin, Manta):
+          // Snout/face is modeled along local +Z. Three.js lookAt aligns -Z with target,
+          // so rotating 180 deg (Math.PI) aligns the creature's face directly at the opponent.
+          companionRig.root.lookAt(oPos);
+          companionRig.root.rotateY(Math.PI);
+        }
+
+        // 2. Orient opponent so its face points directly at the companion
+        if (activeBattleRig.isCustomModel || activeBattleRig.innerMesh) {
+          // Custom GLB opponent: lookAt companion and align inner mesh
+          activeBattleRig.root.lookAt(pPos);
+          const enemyConfig = propsRef.current.customModels[bState.enemy.type as ModelTarget];
+          const enemyRotOffset = enemyConfig?.rotationY !== undefined && enemyConfig.rotationY !== 0
+            ? (enemyConfig.rotationY * Math.PI) / 180
+            : Math.PI / 2;
+          if (activeBattleRig.innerMesh) {
+            activeBattleRig.innerMesh.rotation.y = enemyRotOffset;
+          }
+        } else {
+          // Procedural opponent: snout/face is at local +Z, so lookAt + rotateY(Math.PI) points face at player
+          activeBattleRig.root.lookAt(pPos);
+          activeBattleRig.root.rotateY(Math.PI);
+        }
+
+        // Hide companion and opponent 3D generic nameplates during battle so HP UI replaces it
+        if (companionRig.nameSprite) {
+          companionRig.nameSprite.visible = false;
+        }
+        if (activeBattleRig && activeBattleRig.nameSprite) {
+          activeBattleRig.nameSprite.visible = false;
+        }
+
+        // Project player companion's 3D position (above the Orca) to 2D screen coordinates
+        const playerAnchor3D = pPos.clone().add(new THREE.Vector3(0, 2.7, 0));
+        const projected = playerAnchor3D.project(camera);
+        if (projected.z < 1) {
+          const w = container ? container.clientWidth : window.innerWidth;
+          const h = container ? container.clientHeight : window.innerHeight;
+          const sx = (projected.x * 0.5 + 0.5) * w;
+          const sy = (-projected.y * 0.5 + 0.5) * h;
+          if (propsRef.current.onPlayerBattleScreenPosChange) {
+            propsRef.current.onPlayerBattleScreenPosChange({ x: Math.round(sx), y: Math.round(sy) });
+          }
+        }
 
         // Pokémon over-the-shoulder duel perspective camera
         const duelCamPos = new THREE.Vector3(-9.2, 3.4, 9.8);
@@ -1023,6 +1248,10 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
         camera.position.lerp(duelCamPos, 0.08);
         camera.lookAt(duelLookTarget);
       } else {
+        if (propsRef.current.onPlayerBattleScreenPosChange) {
+          propsRef.current.onPlayerBattleScreenPosChange(null);
+        }
+
         // Clean up battle opponent if battle ended
         if (activeBattleRig) {
           while (battleOpponentGroup.children.length > 0) {
@@ -1037,12 +1266,14 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
         // 2. EXPLORATION SWIMMING (MINECRAFT vs ORBIT)
         // ============================================
 
+        const isNintendogsActive = propsRef.current.isNintendogsMode || (time < summonUntil);
+
         // Check Whistle Summon & Feeding Heart triggers
         if (propsRef.current.summonTrigger && propsRef.current.summonTrigger !== lastSummonTrigger) {
           lastSummonTrigger = propsRef.current.summonTrigger;
-          summonUntil = time + 6.0;
+          summonUntil = time + 14.0;
           heartAnimStart = time;
-          heartAnimUntil = time + 5.0;
+          heartAnimUntil = time + 6.0;
         }
 
         if (propsRef.current.feedHeartTrigger && propsRef.current.feedHeartTrigger !== lastFeedTrigger) {
@@ -1066,124 +1297,195 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
           heartSprite.visible = false;
         }
 
-        // Whistle Summoned State: Whale swims directly to front of screen to greet player!
-        if (time < summonUntil) {
+        // ============================================
+        // 2. NINTENDOGS CLOSE-UP SCREEN MODE vs NORMAL
+        // ============================================
+        if (isNintendogsActive) {
+          // Dynamic studio lighting boost for vibrant close-up illumination
+          cameraHeadlight.intensity = 5.0;
+          cameraSpotLight.intensity = 5.5;
+          cameraFillLight.intensity = 3.5;
+          companionFillLight.intensity = 3.0;
+
+          // In Nintendogs screen mode: HIDE the nameplate so Oreo's face is unobstructed!
+          if (companionRig.nameSprite) {
+            companionRig.nameSprite.visible = false;
+          }
+
+          // Target is centered right in front of the camera, ~3.3 units away
           const camDir = new THREE.Vector3();
           camera.getWorldDirection(camDir);
-          const targetFront = camera.position.clone().addScaledVector(camDir, 4.8);
-          targetFront.y = Math.max(-4.2, Math.min(7.5, targetFront.y));
+          const targetFront = camera.position.clone().addScaledVector(camDir, 3.3);
+          targetFront.y = Math.max(-4.5, Math.min(9.5, targetFront.y));
 
-          companionSwimPos.lerp(targetFront, delta * 3.5);
+          companionSwimPos.lerp(targetFront, delta * 4.2);
           companionRig.root.position.copy(companionSwimPos);
 
-          const toCam = camera.position.clone().sub(companionSwimPos);
-          const faceCamAngle = Math.atan2(toCam.x, toCam.z);
-          companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, faceCamAngle, 0.14);
+          // 1. Make the main object point directly at the camera
+          companionRig.root.lookAt(camera.position);
 
-          // Joyous playful rolls & wiggles
-          companionRig.root.rotation.z = Math.sin(time * 6) * 0.25;
-          companionRig.root.rotation.x = Math.sin(time * 3.5) * 0.15;
-          companionRig.updateAnimation(time, 1.5);
-        } else if (scheme === 'minecraft') {
-          controls.enabled = false;
-
-          // Keyboard input
-          let kx = 0;
-          let kz = 0;
-          let ky = 0;
-          if (keysPressed['KeyW']) kz -= 1;
-          if (keysPressed['KeyS']) kz += 1;
-          if (keysPressed['KeyA']) kx -= 1;
-          if (keysPressed['KeyD']) kx += 1;
-          if (keysPressed['Space']) ky += 1;
-          if (keysPressed['ShiftLeft'] || keysPressed['ShiftRight'] || keysPressed['KeyC']) ky -= 1;
-
-          // Mobile touch joystick input
-          const mVec = propsRef.current.mobileMoveVector || { x: 0, y: 0, z: 0 };
-          kx += mVec.x;
-          kz += mVec.z;
-          ky += mVec.y;
-
-          // Movement direction relative to camera yaw
-          const forward = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
-          const right = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw));
-          const moveDir = new THREE.Vector3()
-            .addScaledVector(forward, -kz)
-            .addScaledVector(right, kx)
-            .add(new THREE.Vector3(0, ky, 0));
-
-          const isMoving = moveDir.lengthSq() > 0.001;
-          if (isMoving) {
-            moveDir.normalize();
+          // 2. Apply direct rotateY(Math.PI / 2) to the inner mesh (the child of the wrapper) so the Orca physically turns to face the screen
+          const innerMesh = companionRig.innerMesh || companionRig.modelWrapper?.children[0];
+          if (innerMesh) {
+            const customConfig = propsRef.current.customModels[propsRef.current.companionType as ModelTarget];
+            const rotOffset = customConfig?.rotationY !== undefined && customConfig.rotationY !== 0
+              ? (customConfig.rotationY * Math.PI) / 180
+              : Math.PI / 2;
+            innerMesh.rotation.y = rotOffset;
           }
 
-          companionSwimPos.addScaledVector(moveDir, delta * 10 * curSpeed);
-          companionSwimPos.x = Math.max(-48, Math.min(48, companionSwimPos.x));
-          companionSwimPos.z = Math.max(-48, Math.min(48, companionSwimPos.z));
-          companionSwimPos.y = Math.max(-5.2, Math.min(10.5, companionSwimPos.y));
-
-          companionRig.root.position.copy(companionSwimPos);
-
-          if (isMoving) {
-            const moveAngle = Math.atan2(moveDir.x, moveDir.z);
-            companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, moveAngle, 0.16);
-          } else {
-            companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, camYaw, 0.08);
+          // Head tilt towards mouse / touch position (Nintendogs cursor-following)
+          const gp = gamepadService.getLiveState();
+          if (gp.connected) {
+            normMousePos.x = THREE.MathUtils.clamp(normMousePos.x - gp.lookYaw * delta * 0.4, -1, 1);
+            normMousePos.y = THREE.MathUtils.clamp(normMousePos.y + gp.lookPitch * delta * 0.4, -1, 1);
           }
 
-          companionRig.updateAnimation(time, curSpeed * (isMoving ? 1.6 : 0.6));
+          const tiltX = (normMousePos.y * 0.22) + Math.sin(time * 3.5) * 0.06;
+          const tiltZ = (-normMousePos.x * 0.22) + Math.sin(time * 2.0) * 0.06;
+          companionRig.root.rotation.x = THREE.MathUtils.lerp(companionRig.root.rotation.x, tiltX, 0.12);
+          companionRig.root.rotation.z = THREE.MathUtils.lerp(companionRig.root.rotation.z, tiltZ, 0.12);
 
-          // Smooth third-person chase camera
-          const camOffset = new THREE.Vector3(
-            Math.sin(camYaw) * Math.cos(camPitch) * 8.5,
-            -Math.sin(camPitch) * 8.5 + 2.8,
-            Math.cos(camYaw) * Math.cos(camPitch) * 8.5
-          );
-          camera.position.lerp(companionSwimPos.clone().add(camOffset), 0.14);
-          camera.lookAt(companionSwimPos.clone().add(new THREE.Vector3(0, 1.0, 0)));
+          // Gentle bobbing and playful flipper motion
+          companionRig.updateAnimation(time, 1.2);
         } else {
-          // Classic Orbit Controls mode
-          controls.enabled = true;
-          const partySpeedMultiplier = isRave ? 2.5 : 1.0;
-          orcaOrbitAngle += delta * 0.45 * curSpeed * partySpeedMultiplier;
-          const orcaRadius = isRave ? 5.5 : 7.5;
-          const targetX = Math.cos(orcaOrbitAngle) * orcaRadius;
-          const targetZ = Math.sin(orcaOrbitAngle) * orcaRadius;
-          const targetY = Math.sin(time * 0.8 * curSpeed) * 1.2;
+          // Normal mode exploration lighting
+          cameraHeadlight.intensity = 2.8;
+          cameraSpotLight.intensity = 2.5;
+          cameraFillLight.intensity = 1.8;
+          companionFillLight.intensity = 2.0;
 
-          companionRig.root.position.set(targetX, targetY, targetZ);
-          const lookTangentX = -Math.sin(orcaOrbitAngle);
-          const lookTangentZ = Math.cos(orcaOrbitAngle);
-          companionRig.root.rotation.y = Math.atan2(lookTangentX, lookTangentZ);
-
-          if (isRave) {
-            companionRig.root.rotation.z = Math.sin(time * 8) * 0.6;
-            companionRig.root.rotation.x = Math.cos(time * 6) * 0.4;
-          } else {
-            companionRig.root.rotation.z = 0;
-            companionRig.root.rotation.x = 0;
+          // Restore normal swimming inner mesh heading
+          const innerMesh = companionRig.innerMesh || companionRig.modelWrapper?.children[0];
+          if (innerMesh) {
+            const customConfig = propsRef.current.customModels[propsRef.current.companionType as ModelTarget];
+            innerMesh.rotation.y = ((customConfig?.rotationY || 0) * Math.PI) / 180;
           }
 
-          companionRig.updateAnimation(time, curSpeed * partySpeedMultiplier);
+          // Normal mode: Respect user's showNameplates setting
+          if (companionRig.nameSprite) {
+            companionRig.nameSprite.visible = propsRef.current.showNameplates !== false;
+          }
 
-          const mode = propsRef.current.cameraMode;
-          if (mode === 'follow') {
-            const followOffset = new THREE.Vector3(
-              -Math.sin(orcaOrbitAngle) * -8,
-              3.5,
-              Math.cos(orcaOrbitAngle) * -8
-            );
-            const targetCamPos = companionRig.root.position.clone().add(followOffset);
-            camera.position.lerp(targetCamPos, 0.06);
-            controls.target.lerp(companionRig.root.position, 0.08);
-            controls.update();
-          } else if (mode === 'panoramic') {
-            const panoAngle = time * 0.08;
-            camera.position.set(Math.cos(panoAngle) * 32, 10, Math.sin(panoAngle) * 32);
-            controls.target.set(0, 0, 0);
-            controls.update();
+          if (scheme === 'minecraft') {
+            controls.enabled = false;
+
+            // 1. Move the PLAYER (DIVER) with keyboard, virtual joystick & Xbox controller
+            let kx = 0;
+            let kz = 0;
+            let ky = 0;
+            if (keysPressed['KeyW']) kz -= 1;
+            if (keysPressed['KeyS']) kz += 1;
+            if (keysPressed['KeyA']) kx -= 1;
+            if (keysPressed['KeyD']) kx += 1;
+            if (keysPressed['Space']) ky += 1;
+            if (keysPressed['ShiftLeft'] || keysPressed['ShiftRight'] || keysPressed['KeyC']) ky -= 1;
+
+            const mVec = propsRef.current.mobileMoveVector || { x: 0, y: 0, z: 0 };
+            kx += mVec.x;
+            kz += mVec.z;
+            ky += mVec.y;
+
+            // Xbox / Gamepad controller input
+            const gp = gamepadService.getLiveState();
+            let sprintMultiplier = 1.0;
+            if (gp.connected) {
+              kx += gp.moveX;
+              kz += gp.moveZ;
+              ky += gp.moveY;
+              if (gp.sprint) sprintMultiplier = 1.75;
+
+              // Gamepad Right Stick Look (Pitch & Yaw)
+              camYaw += gp.lookYaw * delta;
+              camPitch = Math.max(-0.6, Math.min(0.65, camPitch + gp.lookPitch * delta));
+            }
+
+            const forward = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
+            const right = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw));
+            const moveDir = new THREE.Vector3()
+              .addScaledVector(forward, -kz)
+              .addScaledVector(right, kx)
+              .add(new THREE.Vector3(0, ky, 0));
+
+            const isPlayerMoving = moveDir.lengthSq() > 0.001;
+            if (isPlayerMoving) {
+              moveDir.normalize();
+            }
+
+            // Update player (diver) coordinates in the cove
+            playerSwimPos.addScaledVector(moveDir, delta * 9.5 * curSpeed * sprintMultiplier);
+            playerSwimPos.x = Math.max(-48, Math.min(48, playerSwimPos.x));
+            playerSwimPos.z = Math.max(-48, Math.min(48, playerSwimPos.z));
+            playerSwimPos.y = Math.max(-5.2, Math.min(10.5, playerSwimPos.y));
+
+            camera.position.copy(playerSwimPos);
+            camera.rotation.set(camPitch, camYaw, 0, 'YXZ');
+
+            // 2. OREO COMPANION AI: Independent whale swimming alongside the player!
+            const companionLead = forward.clone().multiplyScalar(6.0).add(right.clone().multiplyScalar(2.6));
+            companionLead.y = -0.6 + Math.sin(time * 1.1) * 0.5;
+            const companionTarget = playerSwimPos.clone().add(companionLead);
+            companionTarget.y = Math.max(-5.2, Math.min(8.5, companionTarget.y));
+
+            companionSwimPos.lerp(companionTarget, delta * (isPlayerMoving ? 3.0 : 1.2));
+            companionRig.root.position.copy(companionSwimPos);
+
+            const toTarget = companionTarget.clone().sub(companionSwimPos);
+            if (toTarget.lengthSq() > 0.08) {
+              const swimAngle = Math.atan2(toTarget.x, toTarget.z);
+              companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, swimAngle, 0.12);
+            } else {
+              companionRig.root.rotation.y = THREE.MathUtils.lerp(companionRig.root.rotation.y, camYaw, 0.06);
+            }
+
+            companionRig.root.rotation.z = Math.sin(time * 3.0) * 0.06;
+            companionRig.root.rotation.x = Math.sin(time * 2.0) * 0.04;
+            companionRig.updateAnimation(time, curSpeed * (isPlayerMoving ? 1.6 : 0.8));
           } else {
-            controls.update();
+            // Classic Orbit Controls mode
+            controls.enabled = true;
+            const partySpeedMultiplier = isRave ? 2.5 : 1.0;
+            orcaOrbitAngle += delta * 0.45 * curSpeed * partySpeedMultiplier;
+            const orcaRadius = isRave ? 5.5 : 7.5;
+            const targetX = Math.cos(orcaOrbitAngle) * orcaRadius;
+            const targetZ = Math.sin(orcaOrbitAngle) * orcaRadius;
+            const targetY = Math.sin(time * 0.8 * curSpeed) * 1.2;
+
+            companionSwimPos.set(targetX, targetY, targetZ);
+            companionRig.root.position.copy(companionSwimPos);
+            const lookTangentX = -Math.sin(orcaOrbitAngle);
+            const lookTangentZ = Math.cos(orcaOrbitAngle);
+            companionRig.root.rotation.y = Math.atan2(lookTangentX, lookTangentZ);
+
+            if (isRave) {
+              companionRig.root.rotation.z = Math.sin(time * 8) * 0.6;
+              companionRig.root.rotation.x = Math.cos(time * 6) * 0.4;
+            } else {
+              companionRig.root.rotation.z = 0;
+              companionRig.root.rotation.x = 0;
+            }
+
+            companionRig.updateAnimation(time, curSpeed * partySpeedMultiplier);
+
+            const mode = propsRef.current.cameraMode;
+            if (mode === 'follow') {
+              const followOffset = new THREE.Vector3(
+                -Math.sin(orcaOrbitAngle) * -8,
+                3.5,
+                Math.cos(orcaOrbitAngle) * -8
+              );
+              const targetCamPos = companionRig.root.position.clone().add(followOffset);
+              camera.position.lerp(targetCamPos, 0.06);
+              controls.target.lerp(companionRig.root.position, 0.08);
+              controls.update();
+            } else if (mode === 'panoramic') {
+              const panoAngle = time * 0.08;
+              camera.position.set(Math.cos(panoAngle) * 32, 10, Math.sin(panoAngle) * 32);
+              controls.target.set(0, 0, 0);
+              controls.update();
+            } else {
+              controls.update();
+            }
           }
         }
       }
@@ -1276,6 +1578,7 @@ export const OceanScene: React.FC<OceanSceneProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      unsubGamepadActions();
       clearInterval(spawnTimer);
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);

@@ -478,6 +478,40 @@
                     <button id="settings-toggle-mic" class="b-btn" style="padding:6px 14px;">Toggle</button>
                 </div>
 
+                <!-- Organic Audio Controller from User Prototype -->
+                <div style="background:#090d16; border:1px solid #8b5cf6; padding:14px; border-radius:12px; display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <strong style="display:flex; align-items:center; gap:6px; color:#c084fc; font-size:0.88rem;">
+                                <span>🐋</span> Organic Audio Controller & AI
+                            </strong>
+                            <span style="font-size:0.68rem; color:#94a3b8;">Pitch-shifts & slices organic cries when speaking or whistling</span>
+                        </div>
+                        <button id="btn-toggle-organic-controller" class="b-btn" style="background:#7c3aed; padding:6px 12px; font-weight:bold; font-size:0.74rem;">TURN ON</button>
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#161b22; padding:8px 10px; border-radius:8px;">
+                        <div>
+                            <span id="organic-file-label" style="font-size:0.72rem; color:#cbd5e1; display:block;">Default Harmonic Orca Audio Active</span>
+                            <span style="font-size:0.65rem; color:#94a3b8;">Upload your own .mp3 or .wav raw cry</span>
+                        </div>
+                        <label class="b-btn" style="background:#475569; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                            Upload .MP3
+                            <input type="file" id="organic-cry-upload" accept="audio/*,.mp3,.wav" style="display:none;">
+                        </label>
+                    </div>
+
+                    <div style="display:flex; gap:6px;">
+                        <button id="btn-test-respond" class="b-btn" style="flex:1; background:#581c87; font-size:0.7rem; padding:6px;">🗣️ Test Respond (2.5x)</button>
+                        <button id="btn-test-idle" class="b-btn" style="flex:1; background:#075985; font-size:0.7rem; padding:6px;">🌊 Test Idle (1.7x)</button>
+                        <button id="btn-test-battle" class="b-btn" style="flex:1; background:#881337; font-size:0.7rem; padding:6px;">⚔️ Test Battle (1.3x)</button>
+                    </div>
+
+                    <div id="organic-log-box" style="background:#010409; border:1px solid #30363d; border-radius:6px; padding:6px 8px; max-height:80px; overflow-y:auto; font-family:monospace; font-size:0.65rem; color:#8b949e; display:flex; flex-direction:column; gap:2px;">
+                        <div style="color:#58a6ff;">[SYSTEM] Organic Audio Controller ready.</div>
+                    </div>
+                </div>
+
                 <button id="save-settings-btn" class="b-btn" style="padding:10px; margin-top:6px; font-weight:bold;">Save & Close</button>
             </div>
         </div>
@@ -752,18 +786,29 @@
         function sanitizeAndFixModelMaterials(root) {
             if (!root) return;
             root.traverse((child) => {
+                child.visible = true;
+                child.frustumCulled = false;
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    child.frustumCulled = false;
+                    if (child.geometry) {
+                        child.geometry.computeBoundingBox();
+                        child.geometry.computeBoundingSphere();
+                    }
                     if (child.material) {
                         const fixMat = (m) => {
                             m.side = THREE.DoubleSide;
+                            m.depthWrite = true;
+                            m.depthTest = true;
+                            if (m.opacity <= 0.05) m.opacity = 1.0;
                             if (m.map) {
                                 m.map.colorSpace = THREE.SRGBColorSpace;
                                 m.map.needsUpdate = true;
+                                if (m.color) m.color.setHex(0xffffff);
                             }
-                            if (m.roughness !== undefined && m.roughness > 0.9) m.roughness = 0.65;
-                            if (m.metalness !== undefined && m.metalness > 0.8) m.metalness = 0.2;
+                            if (m.roughness !== undefined && m.roughness > 0.8) m.roughness = 0.55;
+                            if (m.metalness !== undefined && m.metalness > 0.3) m.metalness = 0.15;
                             m.needsUpdate = true;
                         };
                         if (Array.isArray(child.material)) child.material.forEach(fixMat);
@@ -781,6 +826,19 @@
                 this.oceanMusicActive = false;
                 this.ambientNodes = [];
                 this.ambientMasterGain = null;
+                // State mapping for custom sounds (.mp3/.wav) mapped to emotions
+                this.customEmotionBuffers = {
+                    happy: null,
+                    sad: null,
+                    angry: null,
+                    victory: null
+                };
+                this.customEmotionFiles = {
+                    happy: null,
+                    sad: null,
+                    angry: null,
+                    victory: null
+                };
             }
             init() {
                 if (!this.ctx) {
@@ -789,6 +847,49 @@
                 }
                 if (this.ctx && this.ctx.state === 'suspended') {
                     this.ctx.resume();
+                }
+            }
+            async loadCustomEmotionAudio(emotion, file) {
+                this.init();
+                if (!this.ctx || !file) return false;
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const decoded = await this.ctx.decodeAudioData(arrayBuffer);
+                    this.customEmotionBuffers[emotion] = decoded;
+                    this.customEmotionFiles[emotion] = file.name;
+                    return true;
+                } catch(e) {
+                    console.warn('Failed to decode emotion audio', e);
+                    return false;
+                }
+            }
+            playEmotionCry(emotion) {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+                // If custom audio mapped for this emotion, play it
+                if (this.customEmotionBuffers[emotion]) {
+                    const src = this.ctx.createBufferSource();
+                    src.buffer = this.customEmotionBuffers[emotion];
+                    const gain = this.ctx.createGain();
+                    gain.gain.value = 0.8;
+                    src.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    src.start();
+                    return;
+                }
+                // Fallbacks to synthesized emotion sounds
+                if (emotion === 'happy') this.playHappyWhaleCry();
+                else if (emotion === 'sad') {
+                    this.playTone(320, 'sine', 0.6, 0.2);
+                    setTimeout(() => this.playTone(240, 'sine', 0.8, 0.18), 250);
+                } else if (emotion === 'angry') {
+                    this.playTone(160, 'sawtooth', 0.35, 0.25);
+                    setTimeout(() => this.playTone(120, 'sawtooth', 0.45, 0.28), 120);
+                } else if (emotion === 'victory') {
+                    this.playPokemonVictoryFanfare();
+                } else {
+                    this.playWhaleChirp();
                 }
             }
             playTone(freq, type = 'sine', dur = 0.2, gainVal = 0.15) {
@@ -973,6 +1074,16 @@
         const sunLight = new THREE.DirectionalLight(0xe0f2fe, 3.2);
         sunLight.position.set(12, 35, 15);
         scene.add(sunLight);
+
+        // Dedicated camera headlight & fill light for custom models and close-up screen view
+        const cameraHeadlight = new THREE.PointLight(0xffffff, 2.5, 30);
+        cameraHeadlight.position.set(0, 0, 1.0);
+        camera.add(cameraHeadlight);
+        const cameraFillLight = new THREE.DirectionalLight(0xe0f2fe, 1.5);
+        cameraFillLight.position.set(0, 1.2, 2.0);
+        camera.add(cameraFillLight);
+        scene.add(camera);
+
         const raveLight = new THREE.PointLight(0xff00ff, 0, 40);
         raveLight.position.set(0, 4, 0);
         scene.add(raveLight);
@@ -1879,6 +1990,201 @@
             showToast(playing ? 'Ambient ocean music ON' : 'Ambient ocean music OFF');
         });
         document.getElementById('settings-toggle-mic').addEventListener('click', toggleWhistleMic);
+
+        /* --- 12. ORGANIC AUDIO CONTROLLER (From User Prototype) --- */
+        let organicControllerActive = false;
+        let organicAudioMgr = null;
+        let organicWhaleAI = null;
+
+        function organicLog(message, type = 'info') {
+            const box = document.getElementById('organic-log-box');
+            if (!box) return;
+            const time = new Date().toISOString().split('T')[1].slice(0, -1);
+            const el = document.createElement('div');
+            el.style.color = type === 'system' ? '#58a6ff' : type === 'audio' ? '#3fb950' : type === 'ai' ? '#d2a8ff' : type === 'mic' ? '#ff7b72' : type === 'warn' ? '#d29922' : '#8b949e';
+            el.textContent = `[${time}] ${message}`;
+            box.appendChild(el);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        class StandaloneWhaleAudioManager {
+            constructor(ctx) {
+                this.ctx = ctx;
+                this.buffer = null;
+                this.fileName = 'Default Harmonic Orca Buffer';
+            }
+            async loadAudio(file) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    this.buffer = await this.ctx.decodeAudioData(arrayBuffer);
+                    this.fileName = file.name;
+                    organicLog(`Successfully decoded: ${file.name} (${this.buffer.duration.toFixed(2)}s)`, 'system');
+                    return true;
+                } catch(e) {
+                    organicLog(`Failed to decode audio: ${e.message}`, 'warn');
+                    return false;
+                }
+            }
+            playCry(emotion) {
+                if (!this.buffer) this.generateDefaultBuffer();
+                let rate = 1.0;
+                if (emotion === 'idle') rate = 1.5 + Math.random() * 0.5;
+                else if (emotion === 'battle') rate = 1.2 + Math.random() * 0.3;
+                else if (emotion === 'respond') rate = 2.0 + Math.random() * 0.8;
+
+                const minDuration = 0.5;
+                const maxDuration = 2.0;
+                let duration = minDuration + Math.random() * (maxDuration - minDuration);
+                duration = Math.min(duration, this.buffer.duration);
+                const maxStart = Math.max(0, this.buffer.duration - duration);
+                const startTime = Math.random() * maxStart;
+
+                const source = this.ctx.createBufferSource();
+                source.buffer = this.buffer;
+                source.playbackRate.value = rate;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 600;
+
+                const gainNode = this.ctx.createGain();
+                source.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(this.ctx.destination);
+
+                const now = this.ctx.currentTime;
+                const actualPlaybackDuration = duration / rate;
+                const fadeTime = Math.min(0.08, actualPlaybackDuration / 2);
+
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(0.8, now + fadeTime);
+                gainNode.gain.setValueAtTime(0.8, now + actualPlaybackDuration - fadeTime);
+                gainNode.gain.linearRampToValueAtTime(0.001, now + actualPlaybackDuration);
+
+                source.start(now, startTime, duration);
+                organicLog(`[WhaleAudioManager] Emitting '${emotion}' cry (Pitch: ${rate.toFixed(2)}x, Length: ${actualPlaybackDuration.toFixed(2)}s)`, 'audio');
+                return actualPlaybackDuration;
+            }
+            generateDefaultBuffer() {
+                const sampleRate = this.ctx.sampleRate || 44100;
+                const duration = 4.0;
+                const frameCount = sampleRate * duration;
+                const buffer = this.ctx.createBuffer(1, frameCount, sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < frameCount; i++) {
+                    const t = i / sampleRate;
+                    const freq = 420 + Math.sin(t * Math.PI * 1.5) * 160;
+                    data[i] = Math.sin(2 * Math.PI * freq * t) * Math.sin((t / duration) * Math.PI) * 0.4;
+                }
+                this.buffer = buffer;
+            }
+        }
+
+        class StandaloneWhaleAI {
+            constructor(audioManager) {
+                this.audioManager = audioManager;
+                this.state = 'idle';
+                this.idleTimer = 4.0 + Math.random() * 4.0;
+                this.lastTime = performance.now();
+                this.isRunning = false;
+            }
+            start() {
+                if (this.isRunning) return;
+                this.isRunning = true;
+                this.lastTime = performance.now();
+                organicLog("[WhaleAI] State machine started. Entering 'idle' state.", 'ai');
+                this.loop();
+            }
+            stop() {
+                this.isRunning = false;
+                organicLog('[WhaleAI] State machine paused.', 'info');
+            }
+            loop() {
+                if (!this.isRunning) return;
+                const now = performance.now();
+                const deltaTime = (now - this.lastTime) / 1000.0;
+                this.lastTime = now;
+                if (this.state === 'idle') {
+                    this.idleTimer -= deltaTime;
+                    if (this.idleTimer <= 0) {
+                        organicLog('[WhaleAI] Idle timer elapsed. Triggering ambient cry.', 'ai');
+                        const dur = this.audioManager.playCry('idle');
+                        this.setBusy(dur);
+                    }
+                }
+                requestAnimationFrame(() => this.loop());
+            }
+            setBusy(dur) {
+                this.state = 'busy';
+                setTimeout(() => {
+                    if (this.isRunning) {
+                        this.state = 'idle';
+                        this.idleTimer = 4.0 + Math.random() * 4.0;
+                        organicLog(`[WhaleAI] Returned to 'idle'. Next ambient in ${this.idleTimer.toFixed(1)}s.`, 'ai');
+                    }
+                }, (dur + 0.5) * 1000);
+            }
+            triggerEvent(emotion) {
+                organicLog(`[WhaleAI] Interrupt received! Triggering '${emotion}' behavior.`, 'ai');
+                const dur = this.audioManager.playCry(emotion);
+                this.setBusy(dur);
+            }
+        }
+
+        function ensureOrganicController() {
+            sound.init();
+            if (!organicAudioMgr) {
+                organicAudioMgr = new StandaloneWhaleAudioManager(sound.ctx);
+                organicWhaleAI = new StandaloneWhaleAI(organicAudioMgr);
+            }
+        }
+
+        const btnToggleOrganic = document.getElementById('btn-toggle-organic-controller');
+        if (btnToggleOrganic) {
+            btnToggleOrganic.addEventListener('click', () => {
+                ensureOrganicController();
+                organicControllerActive = !organicControllerActive;
+                if (organicControllerActive) {
+                    btnToggleOrganic.style.background = '#059669';
+                    btnToggleOrganic.textContent = 'ACTIVE (ON)';
+                    organicWhaleAI.start();
+                    showToast('Organic Audio Controller ON! Whistle or speak into mic to trigger! 🐋');
+                } else {
+                    btnToggleOrganic.style.background = '#7c3aed';
+                    btnToggleOrganic.textContent = 'TURN ON';
+                    organicWhaleAI.stop();
+                    showToast('Organic Audio Controller OFF');
+                }
+            });
+        }
+
+        const organicUpload = document.getElementById('organic-cry-upload');
+        if (organicUpload) {
+            organicUpload.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                ensureOrganicController();
+                organicLog(`Reading file: ${file.name}...`, 'system');
+                const ok = await organicAudioMgr.loadAudio(file);
+                if (ok) {
+                    document.getElementById('organic-file-label').textContent = file.name;
+                    showToast(`Loaded ${file.name} into Organic Controller!`);
+                }
+            });
+        }
+
+        document.getElementById('btn-test-respond')?.addEventListener('click', () => {
+            ensureOrganicController();
+            organicWhaleAI.triggerEvent('respond');
+        });
+        document.getElementById('btn-test-idle')?.addEventListener('click', () => {
+            ensureOrganicController();
+            organicWhaleAI.triggerEvent('idle');
+        });
+        document.getElementById('btn-test-battle')?.addEventListener('click', () => {
+            ensureOrganicController();
+            organicWhaleAI.triggerEvent('battle');
+        });
 
         // Housing Modal
         const housingModal = document.getElementById('housing-modal');

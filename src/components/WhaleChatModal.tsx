@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { soundManager } from '../audio/soundManager';
-import { Send, X, Sparkles, MessageCircle, Heart, Fish } from 'lucide-react';
+import { Send, X, Sparkles, MessageCircle, Heart, Fish, Volume2, Upload, Music } from 'lucide-react';
 import { Inventory } from '../types/game';
+import { saveCustomCry, getAllCustomCries, fileToDataUrl, CryEmotion } from '../services/customCryStorage';
 
 export interface ChatMessage {
   id: string;
@@ -26,6 +27,13 @@ const QUICK_STARTERS = [
   'How do you feel today? 💕',
 ];
 
+const EMOTION_SOUND_EVENTS: { id: 'happy' | 'sad' | 'angry' | 'victory'; label: string; icon: string }[] = [
+  { id: 'happy', label: 'Happy', icon: '💖' },
+  { id: 'sad', label: 'Sad', icon: '💧' },
+  { id: 'angry', label: 'Angry', icon: '💢' },
+  { id: 'victory', label: 'Victory', icon: '🏆' },
+];
+
 export const WhaleChatModal: React.FC<WhaleChatModalProps> = ({
   isOpen,
   onClose,
@@ -44,7 +52,43 @@ export const WhaleChatModal: React.FC<WhaleChatModalProps> = ({
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showVoiceStudio, setShowVoiceStudio] = useState(false);
+  const [customAudioMap, setCustomAudioMap] = useState<Record<string, { fileName: string; duration?: number }>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load mapped custom sounds
+  useEffect(() => {
+    if (isOpen) {
+      getAllCustomCries()
+        .then((all) => {
+          const map: Record<string, { fileName: string; duration?: number }> = {};
+          Object.keys(all).forEach((emo) => {
+            if (all[emo as CryEmotion]) {
+              map[emo] = {
+                fileName: all[emo as CryEmotion]!.fileName || 'Custom Audio',
+                duration: all[emo as CryEmotion]!.duration,
+              };
+            }
+          });
+          setCustomAudioMap(map);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
+  const handleAudioUpload = async (emotion: 'happy' | 'sad' | 'angry' | 'victory', file: File) => {
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await saveCustomCry(emotion, dataUrl, file.name);
+      setCustomAudioMap((prev) => ({
+        ...prev,
+        [emotion]: { fileName: file.name },
+      }));
+      soundManager.playEmotionCry(emotion);
+    } catch {
+      alert('Error saving audio file. Please select a valid .mp3 or .wav file.');
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -142,7 +186,21 @@ export const WhaleChatModal: React.FC<WhaleChatModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Custom Emotion Audio Toggle */}
+            <button
+              onClick={() => setShowVoiceStudio((prev) => !prev)}
+              className={`text-xs px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 border cursor-pointer ${
+                showVoiceStudio
+                  ? 'bg-purple-900/80 text-purple-200 border-purple-400'
+                  : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-sky-500/30'
+              }`}
+              title="Upload & Play Custom Voice Cries (.mp3/.wav)"
+            >
+              <Music size={13} />
+              <span>Cries (.MP3)</span>
+            </button>
+
             {/* Direct feeding button in chat */}
             <button
               onClick={() => {
@@ -165,6 +223,69 @@ export const WhaleChatModal: React.FC<WhaleChatModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Collapsible Emotion Audio Mapping & Uploader Tray */}
+        {showVoiceStudio && (
+          <div className="p-3 bg-slate-950/95 border-b border-purple-500/40 animate-in fade-in duration-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                <Volume2 size={13} />
+                <span>Whale Voice Cries (Mapped to Emotions)</span>
+              </span>
+              <span className="text-[10px] text-slate-400">Upload .mp3 or .wav per emotion</span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {EMOTION_SOUND_EVENTS.map((emo) => {
+                const isCustom = !!customAudioMap[emo.id];
+                return (
+                  <div
+                    key={emo.id}
+                    className="bg-slate-900 border border-slate-800 hover:border-purple-500/40 rounded-xl p-2 flex flex-col justify-between text-xs"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-slate-200 flex items-center gap-1">
+                        <span>{emo.icon}</span>
+                        <span>{emo.label}</span>
+                      </span>
+                      {isCustom && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" title="Custom Audio Active" />
+                      )}
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 truncate mb-1.5">
+                      {isCustom ? customAudioMap[emo.id].fileName : 'Procedural synth'}
+                    </p>
+
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => soundManager.playEmotionCry(emo.id)}
+                        className="flex-1 bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-purple-200 text-[10px] py-1 px-1.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        title={`Play ${emo.label} cry`}
+                      >
+                        <Volume2 size={10} />
+                        <span>Play</span>
+                      </button>
+
+                      <label className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 text-[10px] py-1 px-1.5 rounded-lg font-medium transition-colors flex items-center justify-center cursor-pointer">
+                        <Upload size={10} />
+                        <input
+                          type="file"
+                          accept="audio/mp3,audio/wav,audio/*,.mp3,.wav"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleAudioUpload(emo.id, file);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Message Stream */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-gradient-to-b from-slate-950/60 to-slate-900/40">

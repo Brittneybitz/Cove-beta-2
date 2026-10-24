@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { OceanScene } from './three/OceanScene';
 import { BattleModal } from './components/BattleModal';
 import { RosterModal } from './components/RosterModal';
@@ -10,6 +10,8 @@ import { TherapyModal } from './components/TherapyModal';
 import { CollegeModal } from './components/CollegeModal';
 import { SpeciesCatalogModal } from './components/SpeciesCatalogModal';
 import { PostCatchModal } from './components/PostCatchModal';
+import { WhaleCryStudioModal } from './components/WhaleCryStudioModal';
+import { XboxTutorialModal } from './components/XboxTutorialModal';
 import {
   BattleState,
   CameraViewMode,
@@ -33,6 +35,8 @@ import {
 } from './services/customModelStorage';
 import { soundManager } from './audio/soundManager';
 import { whistleDetector } from './audio/whistleDetector';
+import { organicAudioController } from './audio/organicAudioController';
+import { gamepadService } from './services/gamepadService';
 
 const DEFAULT_MODELS_STATE: Record<ModelTarget, CustomModelConfig> = {
   orca: { target: 'orca', sourceType: 'default', scale: 1.0, offsetY: 0 },
@@ -137,62 +141,27 @@ export default function App() {
   const [summonTrigger, setSummonTrigger] = useState<number>(0);
   const [feedHeartTrigger, setFeedHeartTrigger] = useState<number>(0);
 
-  // Custom Whale AI Engine Instance
-  const whaleAiRef = useRef<any>(null);
-
   // Post-Catch Inspection & Butcher Screen
   const [postCatchData, setPostCatchData] = useState<PostCatchData | null>(null);
-  
-  // Initialize and run the Whale AI Background Loop
-  // Initialize and run the Whale AI Background Loop
-  useEffect(() => {
-    let animId: number;
 
-    // Start audio context on first user click to bypass browser autoplay rules
-    const startAudioContextOnInteraction = async () => {
-      if ((window as any).WhaleAI && !whaleAiRef.current) {
-        try {
-          const ai = new (window as any).WhaleAI();
-          // Fixed path: points directly to public/assets/audio/
-          await ai.init('/assets/audio/whale_cry_snippet.mp3');
-          whaleAiRef.current = ai;
-          (window as any).whaleAIInstance = ai;
-          console.log("Whale AI Engine initialized successfully!");
-        } catch (err) {
-          console.error("Audio AI Init Error:", err);
-        }
-      }
-      window.removeEventListener('click', startAudioContextOnInteraction);
-    };
+  // Oreo speech bubble
+  const [oreoBubble, setOreoBubble] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
 
-    window.addEventListener('click', startAudioContextOnInteraction);
-
-    const loop = () => {
-      if (whaleAiRef.current) {
-        whaleAiRef.current.update();
-      }
-      animId = requestAnimationFrame(loop);
-    };
-
-    animId = requestAnimationFrame(loop);
-
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
-      window.removeEventListener('click', startAudioContextOnInteraction);
-    };
-  }, []);
-
-  // Setup Whistle & Voice Detection Listener + Trigger Custom Cry AI
+  // Setup Whistle & Voice Detection Listener
   useEffect(() => {
     const removeListener = whistleDetector.addListener({
       onWhistle: ({ type }) => {
-        soundManager.playHappyWhaleCry();
-        
-        // Custom Whale Audio Engine Trigger
-        if (whaleAiRef.current) {
-          whaleAiRef.current.triggerEmotion('respond');
+        // If Organic Controller is enabled in settings, emit the pitch-shifted organic cry from the user's controller!
+        if (organicAudioController.getIsEnabled()) {
+          organicAudioController.triggerCry('respond');
+        } else {
+          soundManager.playHappyWhaleCry();
         }
-
         setSummonTrigger((prev) => prev + 1);
         setOreoBubble({
           visible: true,
@@ -205,8 +174,8 @@ export default function App() {
         });
         showToast(
           type === 'whistle'
-            ? '🎶 Whistle heard! Oreo is swimming to greet you! 💕'
-            : '🗣️ Voice heard! Oreo heard your call! 💕'
+            ? '🎶 Whistle heard! Oreo responded with joyful whale vocalization! 💕'
+            : '🗣️ Voice heard! Oreo heard your speech and answered! 💕'
         );
       },
       onAudioLevel: (lvl) => {
@@ -214,6 +183,7 @@ export default function App() {
       },
       onError: () => {
         setIsMicListening(false);
+        organicAudioController.handleMicStateChange(false);
         showToast('Microphone access was denied or unavailable.');
       },
     });
@@ -221,57 +191,28 @@ export default function App() {
     return () => {
       removeListener();
       whistleDetector.stop();
-    };
-  }, []);
-
-  // Initialize and run the Whale AI Background Loop
-  useEffect(() => {
-    let animId: number;
-
-    const initAI = async () => {
-      if (window.WhaleAI && !whaleAiRef.current) {
-        const ai = new window.WhaleAI();
-        await ai.init('/assets/audio/whale_cry_snippet.mp3');
-        whaleAiRef.current = ai;
-      }
-    };
-
-    initAI();
-
-    const loop = () => {
-      if (whaleAiRef.current) {
-        whaleAiRef.current.update();
-      }
-      animId = requestAnimationFrame(loop);
-    };
-
-    animId = requestAnimationFrame(loop);
-
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
+      organicAudioController.handleMicStateChange(false);
     };
   }, []);
 
   const handleToggleMic = async () => {
     if (isMicListening) {
       whistleDetector.stop();
+      await organicAudioController.handleMicStateChange(false);
       setIsMicListening(false);
       setAudioMicLevel(0);
-      showToast('🎤 Whistle Mic OFF');
+      showToast('🎤 Mic OFF');
     } else {
       const ok = await whistleDetector.start();
       if (ok) {
         setIsMicListening(true);
-        soundManager.playWhaleChirp();
-        
-        // Ensure AI audio context is initialized on mic user click
-        if (window.WhaleAI && !whaleAiRef.current) {
-          const ai = new window.WhaleAI();
-          await ai.init('/assets/audio/whale_cry_snippet.mp3');
-          whaleAiRef.current = ai;
+        await organicAudioController.handleMicStateChange(true);
+        if (organicAudioController.getIsEnabled()) {
+          organicAudioController.triggerCry('respond');
+        } else {
+          soundManager.playWhaleChirp();
         }
-
-        showToast('🎤 Whistle Mic ON: Whistle into your mic to call Oreo! 🐳');
+        showToast('🎤 Mic ON: Speak or whistle to trigger organic whale cries! 🐳');
       }
     }
   };
@@ -292,6 +233,180 @@ export default function App() {
   const [isCollegeOpen, setIsCollegeOpen] = useState(false);
   const [isTherapyOpen, setIsTherapyOpen] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [isCryStudioOpen, setIsCryStudioOpen] = useState(false);
+  const [isNintendogsMode, setIsNintendogsMode] = useState(false);
+  const [showNameplates, setShowNameplates] = useState(true);
+  const [isXboxTutorialOpen, setIsXboxTutorialOpen] = useState(false);
+
+  // Check for Xbox controller connection and offer beginner tutorial
+  useEffect(() => {
+    const checkTutorialOffer = () => {
+      const state = gamepadService.getLiveState();
+      if (state.connected) {
+        try {
+          const seen = localStorage.getItem('whale_cove_seen_xbox_tutorial');
+          if (!seen) {
+            setIsXboxTutorialOpen(true);
+            localStorage.setItem('whale_cove_seen_xbox_tutorial', 'true');
+          }
+        } catch {}
+      }
+    };
+    const timer = setTimeout(checkTutorialOffer, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handlePetOreo = () => {
+    soundManager.playCuteCry();
+    setFeedHeartTrigger((prev) => prev + 1);
+    setRoster((prev) =>
+      prev.map((w) =>
+        w.id === 'oreo-starter'
+          ? {
+              ...w,
+              social: {
+                ...w.social,
+                bondPoints: (w.social.bondPoints || 0) + 1,
+              },
+              status: {
+                ...w.status,
+                mood: Math.min(100, (w.status.mood || 80) + 5),
+              },
+            }
+          : w
+      )
+    );
+    showToast('💖 You petted Oreo! *Happy purr & gentle clicks!* (+1 Bond)');
+  };
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isResourcesHidden, setIsResourcesHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('whale_cove_resources_hidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleResources = () => {
+    setIsResourcesHidden((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('whale_cove_resources_hidden', String(next));
+      } catch {}
+      soundManager.playClick();
+      return next;
+    });
+  };
+
+  // Tab cycling via Xbox LB/RB or D-pad Left/Right
+  const TAB_ORDER = [
+    'housing',
+    'college',
+    'therapy',
+    'catalog',
+    'models',
+    'roster',
+    'cryStudio',
+    'settings',
+  ] as const;
+  const [activeTabIdx, setActiveTabIdx] = useState<number>(0);
+
+  const cycleTab = (dir: 1 | -1) => {
+    const nextIdx = (activeTabIdx + dir + TAB_ORDER.length) % TAB_ORDER.length;
+    setActiveTabIdx(nextIdx);
+    const tabName = TAB_ORDER[nextIdx];
+
+    setIsHousingOpen(tabName === 'housing');
+    setIsCollegeOpen(tabName === 'college');
+    setIsTherapyOpen(tabName === 'therapy');
+    setIsCatalogOpen(tabName === 'catalog');
+    setIsModelManagerOpen(tabName === 'models');
+    setIsRosterOpen(tabName === 'roster');
+    setIsCryStudioOpen(tabName === 'cryStudio');
+    setIsSettingsOpen(tabName === 'settings');
+
+    soundManager.playBubble();
+    const tabLabels: Record<string, string> = {
+      housing: '🏠 Housing & Bills',
+      college: '🎓 College & Careers',
+      therapy: '💖 Therapy & Drama',
+      catalog: '📖 50 Species Dex',
+      models: '📦 3D Model Manager',
+      roster: '🏆 Pod Roster',
+      cryStudio: '🎙️ Whale Cry Studio',
+      settings: '⚙️ Settings & Xbox Mapping',
+    };
+    showToast(`🎮 Tab: ${tabLabels[tabName] || tabName} (LB/RB to switch, B to close)`);
+  };
+
+  const closeAllModals = () => {
+    setIsHousingOpen(false);
+    setIsCollegeOpen(false);
+    setIsTherapyOpen(false);
+    setIsCatalogOpen(false);
+    setIsModelManagerOpen(false);
+    setIsRosterOpen(false);
+    setIsCryStudioOpen(false);
+    setIsChatOpen(false);
+    setIsSettingsOpen(false);
+    soundManager.playClick();
+  };
+
+  const handleCallWhaleFromController = () => {
+    if (organicAudioController.getIsEnabled()) {
+      organicAudioController.triggerCry('respond');
+    } else {
+      soundManager.playHappyWhaleCry();
+    }
+    setSummonTrigger((prev) => prev + 1);
+    setOreoBubble({
+      visible: true,
+      x: window.innerWidth / 2,
+      y: Math.max(120, window.innerHeight / 2 - 120),
+      text: '🎮 *Joyful chirp!* Oreo heard your Xbox controller call! 🐋💕',
+    });
+    showToast('🎮 [RT] Whistled to Oreo with Xbox Controller! Oreo is swimming to you! 🌊');
+  };
+
+  // Xbox Controller Action Listeners
+  useEffect(() => {
+    const unsub = gamepadService.onAction((action) => {
+      if (action === 'callWhale') {
+        handleCallWhaleFromController();
+      } else if (action === 'nextTab') {
+        cycleTab(1);
+      } else if (action === 'prevTab') {
+        cycleTab(-1);
+      } else if (action === 'backOrClose') {
+        closeAllModals();
+      } else if (action === 'screenCall') {
+        setIsNintendogsMode((prev) => {
+          const next = !prev;
+          if (next) {
+            soundManager.playHappyWhaleCry();
+            showToast('🐾 [X] Oreo swam right up to the screen! (Nintendogs mode)');
+          } else {
+            soundManager.playBubble();
+            showToast('🌊 Back to open swimming');
+          }
+          return next;
+        });
+      } else if (action === 'cryStudio') {
+        setIsCryStudioOpen((prev) => !prev);
+      } else if (action === 'toggleSettings') {
+        setIsSettingsOpen((prev) => !prev);
+      } else if (action === 'toggleResources') {
+        handleToggleResources();
+      } else if (action === 'interact') {
+        if (isNintendogsMode) {
+          handlePetOreo();
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [isNintendogsMode, activeTabIdx]);
 
   // Load saved models from browser IndexedDB
   useEffect(() => {
@@ -327,6 +442,7 @@ export default function App() {
     const simTimer = setInterval(() => {
       setRoster((prevRoster) => {
         return prevRoster.map((whale) => {
+          // Profession perks
           let addedWallet = 0;
           if (whale.career.profession === 'shopkeeper') {
             addedWallet += 5 * whale.career.level;
@@ -334,12 +450,14 @@ export default function App() {
             addedWallet += Math.floor(whale.economy.wallet * 0.05) + 3;
           }
 
+          // Bills
           const billsDue = whale.economy.rentBill + whale.economy.electricBill + whale.economy.utilityBill;
           let currentWallet = whale.economy.wallet + addedWallet;
           let currentDebt = whale.economy.debt;
           let daysDelinquent = whale.economy.daysDelinquent;
           let isEvicted = whale.economy.isEvicted;
 
+          // Lavish whales spend extravagantly on accessories
           if (whale.personality === 'lavish' && Math.random() < 0.3) {
             currentWallet = Math.max(0, currentWallet - 12);
           }
@@ -358,6 +476,7 @@ export default function App() {
             }
           }
 
+          // Health / Sickness progression
           let sickness = whale.status.sickness;
           if (isEvicted && sickness === 'healthy' && Math.random() < 0.3) {
             sickness = 'sick';
@@ -380,6 +499,7 @@ export default function App() {
         });
       });
 
+      // Doctor whales heal the pod!
       const doctors = roster.filter((r) => r.career.profession === 'doctor');
       if (doctors.length > 0) {
         setRoster((prev) =>
@@ -391,6 +511,7 @@ export default function App() {
         );
       }
 
+      // Shopkeepers generate passive player coins
       const shopkeepers = roster.filter((r) => r.career.profession === 'shopkeeper');
       if (shopkeepers.length > 0) {
         setInventory((prev) => ({
@@ -429,7 +550,7 @@ export default function App() {
     showToast(`Time shifted to ${nextTod.toUpperCase()} 🌊`);
   };
 
-  // Rave Candy Party
+  // Rave Candy Party (Sandstorm 2-minute dance party!)
   const handleTriggerRave = () => {
     if (inventory.raveCandies <= 0) {
       showToast('Need 1 Rave Candy! (Craft with 1 Bloom + 1 Sea Anemone)');
@@ -444,7 +565,7 @@ export default function App() {
     setTimeout(() => {
       setIsRaveParty(false);
       showToast('The rave party settled down. The cove rests. ✨');
-    }, 120000);
+    }, 120000); // 2 minutes
   };
 
   // Gem mining on seabed
@@ -516,13 +637,6 @@ export default function App() {
     }
   };
 
-  // Oreo speech bubble
-  const [oreoBubble, setOreoBubble] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    text: string;
-  } | null>(null);
 
   // Battle State
   const [battleState, setBattleState] = useState<BattleState>({
@@ -533,6 +647,7 @@ export default function App() {
     status: 'player_turn',
     log: [],
   });
+  const [playerBattleScreenPos, setPlayerBattleScreenPos] = useState<{ x: number; y: number } | null>(null);
 
   // Clicking Oreo
   const handleSelectOreo = (screenPos: { x: number; y: number }) => {
@@ -635,12 +750,8 @@ export default function App() {
     }
   };
 
-  // Start Wild Encounter with Battle Emotion Trigger
+  // Start Wild Encounter
   const handleEncounterWild = (creature: WildCreatureData) => {
-    if (whaleAiRef.current) {
-      whaleAiRef.current.triggerEmotion('battle');
-    }
-
     setBattleState({
       active: true,
       enemy: { ...creature },
@@ -672,6 +783,7 @@ export default function App() {
       return;
     }
 
+    // EXP Leveling Helper
     const grantCompanionExp = (amount: number) => {
       let newExp = companionExp + amount;
       let newLvl = companionLevel;
@@ -758,6 +870,7 @@ export default function App() {
             ],
           }));
 
+          // Open the Post-Catch inspect & butcher decision screen
           setPostCatchData({
             creature: enemy,
             defaultName: enemy.name,
@@ -778,6 +891,7 @@ export default function App() {
       return;
     }
 
+    // Attacks & Player Turn
     let damage = 0;
     let playerGuarded = false;
 
@@ -830,6 +944,7 @@ export default function App() {
       return;
     }
 
+    // Reset player attack animation after lunge
     setTimeout(() => {
       setBattleState((prev) => ({
         ...prev,
@@ -837,6 +952,7 @@ export default function App() {
       }));
     }, 450);
 
+    // Enemy Turn after 1 second
     setTimeout(() => {
       const enemy = battleState.enemy;
       if (!enemy) return;
@@ -871,6 +987,7 @@ export default function App() {
     }, 1100);
   };
 
+  // Post-Catch Actions (Keep vs Butcher)
   const handleKeepCaughtCreature = (creature: CaughtCreature) => {
     setRoster((prev) => [...prev, creature]);
     setPostCatchData(null);
@@ -902,6 +1019,7 @@ export default function App() {
     showToast(`🥩 Butchered ${creature.name}: +3 ${isWhale ? 'Whale Meat' : 'Shark Meat'}, +50 Coins, +2 Gems!`);
   };
 
+  // Housing Actions
   const handleBuildHouse = () => {
     if (inventory.playerCoins < 100) {
       showToast('Need 100 coins to construct a Nautilus Shell Cottage!');
@@ -961,6 +1079,7 @@ export default function App() {
     showToast('Granted Debt Pardon! Whale rehabilitated from The Reef! 📜');
   };
 
+  // Marriage & Therapy Actions
   const handleMarryWhales = (idA: string, idB: string) => {
     setRoster((prev) =>
       prev.map((c) => {
@@ -1015,6 +1134,7 @@ export default function App() {
     }
   };
 
+  // Higher Education & College Actions
   const handleEnrollCollege = (whaleId: string, profession: ProfessionType) => {
     const tuitionMap: Record<ProfessionType, number> = {
       doctor: 40,
@@ -1047,6 +1167,7 @@ export default function App() {
     showToast(`🎓 Whale graduated as a certified ${profession.toUpperCase()}!`);
   };
 
+  // Copy Standalone Code
   const handleCopyStandaloneCode = async () => {
     try {
       const res = await fetch('/standalone-index.html');
@@ -1061,6 +1182,7 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans">
+      {/* 3D WebGL Ocean Canvas */}
       <OceanScene
         swimSpeed={swimSpeed}
         cameraMode={cameraMode}
@@ -1080,8 +1202,14 @@ export default function App() {
         mobileMoveVector={mobileMoveVector}
         summonTrigger={summonTrigger}
         feedHeartTrigger={feedHeartTrigger}
+        isNintendogsMode={isNintendogsMode}
+        onExitNintendogsMode={() => setIsNintendogsMode(false)}
+        onPetOreo={handlePetOreo}
+        showNameplates={showNameplates}
+        onPlayerBattleScreenPosChange={setPlayerBattleScreenPos}
       />
 
+      {/* Primary HUD Overlay with Universal Minimize Tab & Settings */}
       <HudOverlay
         inventory={inventory}
         rosterCount={roster.length}
@@ -1116,8 +1244,36 @@ export default function App() {
         isMicListening={isMicListening}
         audioMicLevel={audioMicLevel}
         onToggleMic={handleToggleMic}
+        isNintendogsMode={isNintendogsMode}
+        onToggleNintendogsMode={() => {
+          setIsNintendogsMode((prev) => {
+            const next = !prev;
+            if (next) {
+              soundManager.playHappyWhaleCry();
+              showToast('🐶 Screen Call active: Oreo swam right up to the screen! Tap or pet Oreo!');
+            } else {
+              soundManager.playBubble();
+              showToast('🌊 Back to open swimming mode');
+            }
+            return next;
+          });
+        }}
+        onOpenCryStudio={() => setIsCryStudioOpen(true)}
+        showNameplates={showNameplates}
+        onToggleNameplates={() => setShowNameplates((prev) => !prev)}
+        onTapGlass={() => {
+          soundManager.playSplash();
+          setFeedHeartTrigger((prev) => prev + 1);
+          showToast('💧 Tap tap! Oreo tapped the screen back at you!');
+        }}
+        isSettingsOpen={isSettingsOpen}
+        onToggleSettings={() => setIsSettingsOpen((prev) => !prev)}
+        isResourcesHidden={isResourcesHidden}
+        onToggleResources={handleToggleResources}
+        onOpenXboxTutorial={() => setIsXboxTutorialOpen(true)}
       />
 
+      {/* Modern Pokémon-style Battle & Capture Modal */}
       <BattleModal
         battleState={battleState}
         companionName="Oreo"
@@ -1127,10 +1283,12 @@ export default function App() {
         standardFlutes={inventory.standardFlutes}
         silverFlutes={inventory.silverFlutes}
         goldenFlutes={inventory.goldenFlutes}
+        playerScreenPos={playerBattleScreenPos}
         onAction={handleBattleAction}
         onClose={() => setBattleState((prev) => ({ ...prev, active: false }))}
       />
 
+      {/* Post-Catch Pokémon-style Inspect & Butcher Screen */}
       <PostCatchModal
         postCatchData={postCatchData}
         onKeep={handleKeepCaughtCreature}
@@ -1138,6 +1296,7 @@ export default function App() {
         onClose={() => setPostCatchData(null)}
       />
 
+      {/* Roster Modal */}
       <RosterModal
         isOpen={isRosterOpen}
         onClose={() => setIsRosterOpen(false)}
@@ -1149,6 +1308,7 @@ export default function App() {
         }}
       />
 
+      {/* Custom 3D Model Manager Modal */}
       <ModelManagerModal
         isOpen={isModelManagerOpen}
         onClose={() => setIsModelManagerOpen(false)}
@@ -1158,6 +1318,7 @@ export default function App() {
         onImportConfig={handleImportConfig}
       />
 
+      {/* Oreo AI Chat Modal */}
       <WhaleChatModal
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
@@ -1166,6 +1327,7 @@ export default function App() {
         onFeedKelp={handleFeedKelp}
       />
 
+      {/* GDD System Modals */}
       <HousingModal
         isOpen={isHousingOpen}
         onClose={() => setIsHousingOpen(false)}
@@ -1197,6 +1359,22 @@ export default function App() {
       <SpeciesCatalogModal
         isOpen={isCatalogOpen}
         onClose={() => setIsCatalogOpen(false)}
+      />
+
+      {/* Whale Cry Studio Modal */}
+      <WhaleCryStudioModal
+        isOpen={isCryStudioOpen}
+        onClose={() => setIsCryStudioOpen(false)}
+      />
+
+      {/* Xbox One Controller Interactive Beginner's Tutorial Modal */}
+      <XboxTutorialModal
+        isOpen={isXboxTutorialOpen}
+        onClose={() => setIsXboxTutorialOpen(false)}
+        onCallWhale={handleCallWhaleFromController}
+        onToggleScreenCall={() => setIsNintendogsMode((prev) => !prev)}
+        onToggleResources={handleToggleResources}
+        isNintendogsMode={isNintendogsMode}
       />
     </div>
   );
